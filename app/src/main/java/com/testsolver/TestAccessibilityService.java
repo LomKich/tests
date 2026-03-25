@@ -1,7 +1,6 @@
 package com.testsolver;
 
 import android.accessibilityservice.AccessibilityService;
-import android.os.IBinder;
 import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
@@ -285,5 +284,5 @@ public class TestAccessibilityService extends AccessibilityService {
         }
     }
 
-    @Override public IBinder onBind(Intent intent) { return super.onBind(intent); }
+
 }
