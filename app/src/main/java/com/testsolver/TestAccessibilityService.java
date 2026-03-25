@@ -1,4 +1,3 @@
-import android.util.Log;
 package com.testsolver;
 
 import android.accessibilityservice.AccessibilityService;
@@ -27,7 +26,6 @@ import java.util.Collections;
 import java.util.List;
 
 public class TestAccessibilityService extends AccessibilityService {
-        try {
 
     public static final String ACTION_TOGGLE_PAUSE = "com.testsolver.TOGGLE_PAUSE";
     public static TestAccessibilityService instance;
@@ -79,8 +77,8 @@ public class TestAccessibilityService extends AccessibilityService {
         if (root == null) return;
 
         List<String> texts = new ArrayList<>();
-        collectTextSafe(root, texts);
-        root;
+        collectText(root, texts);
+        root.recycle();
         if (texts.isEmpty()) return;
 
         String screenText = String.join(" ", texts);
@@ -97,7 +95,7 @@ public class TestAccessibilityService extends AccessibilityService {
         }
     }
 
-    private void collectTextSafe(AccessibilityNodeInfo node, List<String> out) {
+    private void collectText(AccessibilityNodeInfo node, List<String> out) {
         if (node == null) return;
         CharSequence t = node.getText();
         if (t != null && t.length() > 1) out.add(t.toString());
@@ -105,8 +103,8 @@ public class TestAccessibilityService extends AccessibilityService {
         if (d != null && d.length() > 1) out.add(d.toString());
         for (int i = 0; i < node.getChildCount(); i++) {
             AccessibilityNodeInfo child = node.getChild(i);
-            collectTextSafe(child, out);
-            if (child != null) child;
+            collectText(child, out);
+            if (child != null) child.recycle();
         }
     }
 
@@ -126,9 +124,9 @@ public class TestAccessibilityService extends AccessibilityService {
             Bundle args = new Bundle();
             args.putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, value);
             input.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args);
-            input;
+            input.recycle();
         }
-        root;
+        root.recycle();
     }
 
     private AccessibilityNodeInfo findEditText(AccessibilityNodeInfo node) {
@@ -137,8 +135,8 @@ public class TestAccessibilityService extends AccessibilityService {
         for (int i = 0; i < node.getChildCount(); i++) {
             AccessibilityNodeInfo child = node.getChild(i);
             AccessibilityNodeInfo found = findEditText(child);
-            if (found != null) { if (child != found) child; return found; }
-            if (child != null) child;
+            if (found != null) { if (child != found) child.recycle(); return found; }
+            if (child != null) child.recycle();
         }
         return null;
     }
@@ -159,12 +157,12 @@ public class TestAccessibilityService extends AccessibilityService {
                 AccessibilityNodeInfo clickable = findClickableParent(n, 6);
                 if (clickable != null) {
                     clickable.performAction(AccessibilityNodeInfo.ACTION_CLICK);
-                    if (clickable != n) clickable;
+                    if (clickable != n) clickable.recycle();
                 }
-                n;
+                n.recycle();
             }
         }
-        root;
+        root.recycle();
     }
 
     private AccessibilityNodeInfo findClickableParent(AccessibilityNodeInfo node, int maxDepth) {
@@ -173,7 +171,7 @@ public class TestAccessibilityService extends AccessibilityService {
             if (cur == null) return null;
             if (cur.isClickable()) return cur;
             AccessibilityNodeInfo parent = cur.getParent();
-            if (i > 0) cur;
+            if (i > 0) cur.recycle();
             cur = parent;
         }
         return null;
@@ -288,5 +286,3 @@ public class TestAccessibilityService extends AccessibilityService {
 
 
 }
-
-// Logging added
