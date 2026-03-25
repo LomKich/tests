@@ -26,6 +26,7 @@ import java.util.Collections;
 import java.util.List;
 
 public class TestAccessibilityService extends AccessibilityService {
+        FileLogger.log("event triggered");
 
     public static final String ACTION_TOGGLE_PAUSE = "com.testsolver.TOGGLE_PAUSE";
     public static TestAccessibilityService instance;
