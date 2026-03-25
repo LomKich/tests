@@ -1,6 +1,11 @@
 package com.testsolver;
 
 import android.accessibilityservice.AccessibilityService;
+import android.os.IBinder;
+import android.content.BroadcastReceiver;
+import android.content.Context;
+import android.content.Intent;
+import android.content.IntentFilter;
 import android.graphics.PixelFormat;
 import android.os.Build;
 import android.os.Bundle;
@@ -8,6 +13,7 @@ import android.os.Handler;
 import android.os.Looper;
 import android.view.Gravity;
 import android.view.LayoutInflater;
+import android.view.MotionEvent;
 import android.view.View;
 import android.view.WindowManager;
 import android.view.accessibility.AccessibilityEvent;
@@ -22,18 +28,29 @@ import java.util.List;
 
 public class TestAccessibilityService extends AccessibilityService {
 
+    public static final String ACTION_TOGGLE_PAUSE = "com.testsolver.TOGGLE_PAUSE";
     public static TestAccessibilityService instance;
 
     private AnswerDatabase db;
     private WindowManager windowManager;
     private View overlayView;
+    private WindowManager.LayoutParams overlayParams;
     private TextView tvAnswer;
-    private final Handler handler = new Handler(Looper.getMainLooper());
+    private TextView tvPauseLabel;
 
-    // Track current question number to detect changes
-    private int currentQuestionNum = -1;
+    public static boolean isPaused = false;
+    private final Handler handler = new Handler(Looper.getMainLooper());
     private long lastEventTime = 0;
-    private static final long DEBOUNCE_MS = 500;
+    private String lastScreenHash = "";
+
+    private final BroadcastReceiver toggleReceiver = new BroadcastReceiver() {
+        @Override
+        public void onReceive(Context ctx, Intent intent) {
+            isPaused = !isPaused;
+            updatePauseVisual();
+            if (isPaused) overlayView.setVisibility(View.GONE);
+        }
+    };
 
     @Override
     public void onServiceConnected() {
@@ -42,49 +59,49 @@ public class TestAccessibilityService extends AccessibilityService {
         db.load(this);
         windowManager = (WindowManager) getSystemService(WINDOW_SERVICE);
         showOverlay();
+        registerReceiver(toggleReceiver, new IntentFilter(ACTION_TOGGLE_PAUSE));
         showToast("✅ TestSolver активен — " + db.size() + " вопросов");
     }
 
     @Override
     public void onAccessibilityEvent(AccessibilityEvent event) {
+        if (isPaused) return;
         long now = System.currentTimeMillis();
-        if (now - lastEventTime < DEBOUNCE_MS) return;
+        if (now - lastEventTime < 600) return;
         lastEventTime = now;
-        handler.postDelayed(this::analyzeScreen, 200);
+        handler.postDelayed(this::analyzeScreen, 250);
     }
 
     private void analyzeScreen() {
+        if (isPaused) return;
         AccessibilityNodeInfo root = getRootInActiveWindow();
         if (root == null) return;
 
         List<String> texts = new ArrayList<>();
         collectText(root, texts);
         root.recycle();
-
         if (texts.isEmpty()) return;
+
         String screenText = String.join(" ", texts);
 
-        // Extract question number from screen ("44 из 55")
-        int qNum = db.extractQuestionNumber(screenText);
+        // Debounce: skip if screen didn't change significantly
+        String hash = String.valueOf(screenText.hashCode());
+        if (hash.equals(lastScreenHash)) return;
+        lastScreenHash = hash;
 
-        // If question number changed → reset and find new answer
-        if (qNum != currentQuestionNum) {
-            currentQuestionNum = qNum;
-            AnswerDatabase.Answer answer = db.findAnswer(screenText);
-            updateOverlay(answer);
-            if (answer != null) {
-                // Auto-act after a short delay to let page settle
-                handler.postDelayed(() -> autoAct(answer), 400);
-            }
+        AnswerDatabase.Answer answer = db.findAnswer(screenText);
+        updateOverlay(answer);
+        if (answer != null) {
+            handler.postDelayed(() -> autoAct(answer), 350);
         }
     }
 
     private void collectText(AccessibilityNodeInfo node, List<String> out) {
         if (node == null) return;
-        CharSequence text = node.getText();
-        if (text != null && text.length() > 1) out.add(text.toString());
-        CharSequence desc = node.getContentDescription();
-        if (desc != null && desc.length() > 1) out.add(desc.toString());
+        CharSequence t = node.getText();
+        if (t != null && t.length() > 1) out.add(t.toString());
+        CharSequence d = node.getContentDescription();
+        if (d != null && d.length() > 1) out.add(d.toString());
         for (int i = 0; i < node.getChildCount(); i++) {
             AccessibilityNodeInfo child = node.getChild(i);
             collectText(child, out);
@@ -98,7 +115,6 @@ public class TestAccessibilityService extends AccessibilityService {
         } else if ("radio".equals(answer.type) || "checkbox".equals(answer.type)) {
             autoClick(answer);
         }
-        // match type — just show in overlay, can't auto-click dropdowns
     }
 
     private void autoFillText(String value) {
@@ -108,11 +124,7 @@ public class TestAccessibilityService extends AccessibilityService {
         if (input != null) {
             Bundle args = new Bundle();
             args.putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, value);
-            boolean ok = input.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args);
-            if (!ok) {
-                // Fallback: focus then paste
-                input.performAction(AccessibilityNodeInfo.ACTION_FOCUS);
-            }
+            input.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args);
             input.recycle();
         }
         root.recycle();
@@ -124,10 +136,7 @@ public class TestAccessibilityService extends AccessibilityService {
         for (int i = 0; i < node.getChildCount(); i++) {
             AccessibilityNodeInfo child = node.getChild(i);
             AccessibilityNodeInfo found = findEditText(child);
-            if (found != null) {
-                if (child != found) child.recycle();
-                return found;
-            }
+            if (found != null) { if (child != found) child.recycle(); return found; }
             if (child != null) child.recycle();
         }
         return null;
@@ -136,20 +145,14 @@ public class TestAccessibilityService extends AccessibilityService {
     private void autoClick(AnswerDatabase.Answer answer) {
         AccessibilityNodeInfo root = getRootInActiveWindow();
         if (root == null) return;
-
         List<String> targets = answer.answerList != null
-                ? answer.answerList
-                : Collections.singletonList(answer.answerText);
-
+                ? answer.answerList : Collections.singletonList(answer.answerText);
         for (String target : targets) {
-            // Try exact text match first
             List<AccessibilityNodeInfo> nodes = root.findAccessibilityNodeInfosByText(target);
-            // If no result, try with first significant word
-            if (nodes.isEmpty() && target.length() > 3) {
-                String[] words = target.split("\\s+");
-                if (words.length > 0) {
-                    nodes = root.findAccessibilityNodeInfosByText(words[0]);
-                }
+            if (nodes.isEmpty() && target.contains(" ")) {
+                String firstWord = target.split("\\s+")[0];
+                if (firstWord.length() > 3)
+                    nodes = root.findAccessibilityNodeInfosByText(firstWord);
             }
             for (AccessibilityNodeInfo n : nodes) {
                 AccessibilityNodeInfo clickable = findClickableParent(n, 6);
@@ -165,71 +168,104 @@ public class TestAccessibilityService extends AccessibilityService {
 
     private AccessibilityNodeInfo findClickableParent(AccessibilityNodeInfo node, int maxDepth) {
         AccessibilityNodeInfo cur = node;
-        int depth = 0;
-        while (cur != null && depth < maxDepth) {
+        for (int i = 0; i < maxDepth; i++) {
+            if (cur == null) return null;
             if (cur.isClickable()) return cur;
             AccessibilityNodeInfo parent = cur.getParent();
-            if (depth > 0) cur.recycle();
+            if (i > 0) cur.recycle();
             cur = parent;
-            depth++;
         }
         return null;
     }
 
-    // ─── Overlay ───────────────────────────────────────────────────────────────
+    // ─── Overlay ────────────────────────────────────────────────────────────
 
     private void showOverlay() {
         overlayView = LayoutInflater.from(this).inflate(R.layout.overlay_answer, null);
         tvAnswer = overlayView.findViewById(R.id.tv_answer);
-        overlayView.setVisibility(View.GONE);
+        tvPauseLabel = overlayView.findViewById(R.id.tv_pause_label);
 
         int layoutFlag = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
                 ? WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
                 : WindowManager.LayoutParams.TYPE_PHONE;
 
-        WindowManager.LayoutParams params = new WindowManager.LayoutParams(
+        overlayParams = new WindowManager.LayoutParams(
                 WindowManager.LayoutParams.MATCH_PARENT,
                 WindowManager.LayoutParams.WRAP_CONTENT,
                 layoutFlag,
-                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
-                        | WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
+                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
                 PixelFormat.TRANSLUCENT
         );
-        params.gravity = Gravity.BOTTOM;
-        params.y = 60;
+        overlayParams.gravity = Gravity.BOTTOM | Gravity.START;
+        overlayParams.x = 0;
+        overlayParams.y = 60;
+        overlayView.setVisibility(View.GONE);
 
-        Button btnClose = overlayView.findViewById(R.id.btn_close);
-        btnClose.setOnClickListener(v -> overlayView.setVisibility(View.GONE));
+        // Close button
+        overlayView.findViewById(R.id.btn_close).setOnClickListener(v ->
+                overlayView.setVisibility(View.GONE));
 
-        windowManager.addView(overlayView, params);
+        // Drag handle — drag overlay by touching the header strip
+        View dragHandle = overlayView.findViewById(R.id.drag_handle);
+        dragHandle.setOnTouchListener(new DragTouchListener());
+
+        windowManager.addView(overlayView, overlayParams);
+    }
+
+    /** Touch listener that drags the overlay window */
+    private class DragTouchListener implements View.OnTouchListener {
+        float startRawX, startRawY;
+        int startX, startY;
+
+        @Override
+        public boolean onTouch(View v, MotionEvent e) {
+            switch (e.getAction()) {
+                case MotionEvent.ACTION_DOWN:
+                    startRawX = e.getRawX();
+                    startRawY = e.getRawY();
+                    startX = overlayParams.x;
+                    startY = overlayParams.y;
+                    return true;
+                case MotionEvent.ACTION_MOVE:
+                    overlayParams.x = startX + (int)(e.getRawX() - startRawX);
+                    overlayParams.y = startY - (int)(e.getRawY() - startRawY);
+                    windowManager.updateViewLayout(overlayView, overlayParams);
+                    return true;
+                case MotionEvent.ACTION_UP:
+                    return true;
+            }
+            return false;
+        }
     }
 
     private void updateOverlay(AnswerDatabase.Answer answer) {
         handler.post(() -> {
-            if (overlayView == null) return;
+            if (overlayView == null || isPaused) return;
             if (answer == null) {
                 overlayView.setVisibility(View.GONE);
                 return;
             }
-
             StringBuilder sb = new StringBuilder();
-            sb.append("📖 Вопрос ").append(answer.num).append("/55\n");
-
             switch (answer.type) {
                 case "text":     sb.append("✏️ Введи:\n"); break;
                 case "radio":    sb.append("🔘 Выбери:\n"); break;
                 case "checkbox": sb.append("☑️ Отметь:\n"); break;
                 case "match":    sb.append("🔗 Соответствие:\n"); break;
             }
-
             if (answer.answerList != null) {
                 for (String a : answer.answerList) sb.append("  • ").append(a).append("\n");
             } else {
                 sb.append("  ").append(answer.answerText);
             }
-
             tvAnswer.setText(sb.toString().trim());
             overlayView.setVisibility(View.VISIBLE);
+        });
+    }
+
+    private void updatePauseVisual() {
+        handler.post(() -> {
+            if (tvPauseLabel != null)
+                tvPauseLabel.setText(isPaused ? "⏸ ПАУЗА" : "▶ TestSolver");
         });
     }
 
@@ -237,15 +273,17 @@ public class TestAccessibilityService extends AccessibilityService {
         handler.post(() -> Toast.makeText(this, msg, Toast.LENGTH_SHORT).show());
     }
 
-    @Override
-    public void onInterrupt() {}
+    @Override public void onInterrupt() {}
 
     @Override
     public void onDestroy() {
         super.onDestroy();
         instance = null;
+        try { unregisterReceiver(toggleReceiver); } catch (Exception ignored) {}
         if (overlayView != null && windowManager != null) {
             try { windowManager.removeView(overlayView); } catch (Exception ignored) {}
         }
     }
+
+    @Override public IBinder onBind(Intent intent) { return super.onBind(intent); }
 }

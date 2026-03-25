@@ -13,34 +13,43 @@ import androidx.appcompat.app.AppCompatActivity;
 public class MainActivity extends AppCompatActivity {
 
     private TextView tvStatus;
+    private Button btnPause;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
 
-        tvStatus = findViewById(R.id.tv_status);
+        tvStatus  = findViewById(R.id.tv_status);
+        btnPause  = findViewById(R.id.btn_pause);
 
-        Button btnAccessibility = findViewById(R.id.btn_accessibility);
-        Button btnOverlay = findViewById(R.id.btn_overlay);
-
-        btnAccessibility.setOnClickListener(v -> {
-            Intent intent = new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS);
-            startActivity(intent);
-            Toast.makeText(this,
-                "Найди 'TestSolver' и включи", Toast.LENGTH_LONG).show();
+        findViewById(R.id.btn_accessibility).setOnClickListener(v -> {
+            startActivity(new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS));
+            Toast.makeText(this, "Найди TestSolver → переключатель вправо", Toast.LENGTH_LONG).show();
         });
 
-        btnOverlay.setOnClickListener(v -> {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M
-                    && !Settings.canDrawOverlays(this)) {
-                Intent intent = new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                        Uri.parse("package:" + getPackageName()));
-                startActivity(intent);
+        findViewById(R.id.btn_overlay).setOnClickListener(v -> {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && !Settings.canDrawOverlays(this)) {
+                startActivity(new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                        Uri.parse("package:" + getPackageName())));
             } else {
                 Toast.makeText(this, "✅ Разрешение уже есть", Toast.LENGTH_SHORT).show();
             }
         });
+
+        btnPause.setOnClickListener(v -> {
+            if (TestAccessibilityService.instance == null) {
+                Toast.makeText(this,
+                        "Сервис не запущен — сначала включи в настройках доступности",
+                        Toast.LENGTH_LONG).show();
+                return;
+            }
+            sendBroadcast(new Intent(TestAccessibilityService.ACTION_TOGGLE_PAUSE));
+            btnPause.postDelayed(this::updateStatus, 150);
+        });
+
+        findViewById(R.id.btn_add_question).setOnClickListener(v ->
+                startActivity(new Intent(this, AddQuestionActivity.class)));
     }
 
     @Override
@@ -53,16 +62,25 @@ public class MainActivity extends AppCompatActivity {
         boolean serviceOn = TestAccessibilityService.instance != null;
         boolean overlayOn = Build.VERSION.SDK_INT < Build.VERSION_CODES.M
                 || Settings.canDrawOverlays(this);
+        boolean paused    = serviceOn && TestAccessibilityService.isPaused;
 
         StringBuilder sb = new StringBuilder();
         sb.append(serviceOn ? "✅" : "❌").append(" Сервис доступности\n");
-        sb.append(overlayOn ? "✅" : "❌").append(" Разрешение оверлея\n\n");
+        sb.append(overlayOn ? "✅" : "❌").append(" Разрешение оверлея\n");
 
+        if (serviceOn) {
+            sb.append(paused ? "⏸ Режим: ПАУЗА" : "▶ Режим: активен").append("\n");
+        }
+
+        sb.append("\n");
         if (serviceOn && overlayOn) {
-            sb.append("🟢 Всё готово!\nОткрой тест в Chrome — ответ\nпоявится снизу автоматически.");
+            sb.append("🟢 Готово! Открой Chrome → зайди на тест.");
         } else {
             sb.append("👆 Включи оба пункта выше.");
         }
+
         tvStatus.setText(sb.toString());
+        btnPause.setEnabled(serviceOn);
+        btnPause.setText(paused ? "▶ Возобновить" : "⏸ Пауза");
     }
 }
