@@ -104,7 +104,6 @@ public class TestAccessibilityService extends AccessibilityService {
         for (int i = 0; i < node.getChildCount(); i++) {
             AccessibilityNodeInfo child = node.getChild(i);
             collectText(child, out);
-            if (child != null) child.recycle();
         }
     }
 
