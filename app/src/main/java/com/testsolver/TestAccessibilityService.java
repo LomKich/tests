@@ -2,13 +2,12 @@ package com.testsolver;
 
 import android.accessibilityservice.AccessibilityService;
 import android.graphics.PixelFormat;
-import android.graphics.Rect;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.view.Gravity;
 import android.view.LayoutInflater;
-import android.view.MotionEvent;
 import android.view.View;
 import android.view.WindowManager;
 import android.view.accessibility.AccessibilityEvent;
@@ -18,6 +17,7 @@ import android.widget.TextView;
 import android.widget.Toast;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 
 public class TestAccessibilityService extends AccessibilityService {
@@ -29,8 +29,11 @@ public class TestAccessibilityService extends AccessibilityService {
     private View overlayView;
     private TextView tvAnswer;
     private final Handler handler = new Handler(Looper.getMainLooper());
-    private String lastMatchedQuestion = "";
+
+    // Track current question number to detect changes
+    private int currentQuestionNum = -1;
     private long lastEventTime = 0;
+    private static final long DEBOUNCE_MS = 500;
 
     @Override
     public void onServiceConnected() {
@@ -39,49 +42,40 @@ public class TestAccessibilityService extends AccessibilityService {
         db.load(this);
         windowManager = (WindowManager) getSystemService(WINDOW_SERVICE);
         showOverlay();
-        showToast("✅ TestSolver активен (" + db.size() + " ответов)");
+        showToast("✅ TestSolver активен — " + db.size() + " вопросов");
     }
 
     @Override
     public void onAccessibilityEvent(AccessibilityEvent event) {
         long now = System.currentTimeMillis();
-        if (now - lastEventTime < 600) return; // debounce
+        if (now - lastEventTime < DEBOUNCE_MS) return;
         lastEventTime = now;
-
-        handler.postDelayed(() -> analyzeScreen(), 300);
+        handler.postDelayed(this::analyzeScreen, 200);
     }
 
     private void analyzeScreen() {
         AccessibilityNodeInfo root = getRootInActiveWindow();
         if (root == null) return;
 
-        // Collect all visible text
         List<String> texts = new ArrayList<>();
         collectText(root, texts);
         root.recycle();
 
+        if (texts.isEmpty()) return;
         String screenText = String.join(" ", texts);
-        if (screenText.length() < 10) return;
 
-        AnswerDatabase.Answer answer = db.findAnswer(screenText);
-        if (answer == null) {
-            // No match — clear overlay quietly
-            updateOverlay(null, null);
-            return;
-        }
+        // Extract question number from screen ("44 из 55")
+        int qNum = db.extractQuestionNumber(screenText);
 
-        // Same question — don't spam
-        String questionKey = answer.num + answer.answerText;
-        if (questionKey.equals(lastMatchedQuestion)) return;
-        lastMatchedQuestion = questionKey;
-
-        updateOverlay(answer, screenText);
-
-        // Try to auto-fill/auto-click
-        if ("text".equals(answer.type)) {
-            autoFillText(answer.answerText);
-        } else if ("radio".equals(answer.type) || "checkbox".equals(answer.type)) {
-            autoClick(answer);
+        // If question number changed → reset and find new answer
+        if (qNum != currentQuestionNum) {
+            currentQuestionNum = qNum;
+            AnswerDatabase.Answer answer = db.findAnswer(screenText);
+            updateOverlay(answer);
+            if (answer != null) {
+                // Auto-act after a short delay to let page settle
+                handler.postDelayed(() -> autoAct(answer), 400);
+            }
         }
     }
 
@@ -98,7 +92,15 @@ public class TestAccessibilityService extends AccessibilityService {
         }
     }
 
-    /** Auto-fill the first visible EditText / INPUT field */
+    private void autoAct(AnswerDatabase.Answer answer) {
+        if ("text".equals(answer.type)) {
+            autoFillText(answer.answerText);
+        } else if ("radio".equals(answer.type) || "checkbox".equals(answer.type)) {
+            autoClick(answer);
+        }
+        // match type — just show in overlay, can't auto-click dropdowns
+    }
+
     private void autoFillText(String value) {
         AccessibilityNodeInfo root = getRootInActiveWindow();
         if (root == null) return;
@@ -107,8 +109,9 @@ public class TestAccessibilityService extends AccessibilityService {
             Bundle args = new Bundle();
             args.putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, value);
             boolean ok = input.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args);
-            if (ok) {
-                handler.postDelayed(() -> showToast("✏️ Вставлено: " + value), 100);
+            if (!ok) {
+                // Fallback: focus then paste
+                input.performAction(AccessibilityNodeInfo.ACTION_FOCUS);
             }
             input.recycle();
         }
@@ -117,10 +120,7 @@ public class TestAccessibilityService extends AccessibilityService {
 
     private AccessibilityNodeInfo findEditText(AccessibilityNodeInfo node) {
         if (node == null) return null;
-        if ("android.widget.EditText".equals(node.getClassName())
-                || node.isEditable()) {
-            return node;
-        }
+        if (node.isEditable()) return node;
         for (int i = 0; i < node.getChildCount(); i++) {
             AccessibilityNodeInfo child = node.getChild(i);
             AccessibilityNodeInfo found = findEditText(child);
@@ -133,40 +133,40 @@ public class TestAccessibilityService extends AccessibilityService {
         return null;
     }
 
-    /** Auto-click checkbox/radio matching the answer text */
     private void autoClick(AnswerDatabase.Answer answer) {
         AccessibilityNodeInfo root = getRootInActiveWindow();
         if (root == null) return;
 
-        List<String> targets = answer.answerList != null ? answer.answerList
-                : java.util.Collections.singletonList(answer.answerText);
+        List<String> targets = answer.answerList != null
+                ? answer.answerList
+                : Collections.singletonList(answer.answerText);
 
-        int clicked = 0;
         for (String target : targets) {
-            // Try to find node by text containing the target
+            // Try exact text match first
             List<AccessibilityNodeInfo> nodes = root.findAccessibilityNodeInfosByText(target);
+            // If no result, try with first significant word
+            if (nodes.isEmpty() && target.length() > 3) {
+                String[] words = target.split("\\s+");
+                if (words.length > 0) {
+                    nodes = root.findAccessibilityNodeInfosByText(words[0]);
+                }
+            }
             for (AccessibilityNodeInfo n : nodes) {
-                // Walk up to find clickable parent (the label row/checkbox)
-                AccessibilityNodeInfo clickable = findClickable(n);
+                AccessibilityNodeInfo clickable = findClickableParent(n, 6);
                 if (clickable != null) {
                     clickable.performAction(AccessibilityNodeInfo.ACTION_CLICK);
-                    clicked++;
-                    clickable.recycle();
+                    if (clickable != n) clickable.recycle();
                 }
                 n.recycle();
             }
         }
         root.recycle();
-
-        if (clicked == 0) {
-            // Can't find by node — inform user via overlay, they click manually
-        }
     }
 
-    private AccessibilityNodeInfo findClickable(AccessibilityNodeInfo node) {
+    private AccessibilityNodeInfo findClickableParent(AccessibilityNodeInfo node, int maxDepth) {
         AccessibilityNodeInfo cur = node;
         int depth = 0;
-        while (cur != null && depth < 5) {
+        while (cur != null && depth < maxDepth) {
             if (cur.isClickable()) return cur;
             AccessibilityNodeInfo parent = cur.getParent();
             if (depth > 0) cur.recycle();
@@ -176,13 +176,14 @@ public class TestAccessibilityService extends AccessibilityService {
         return null;
     }
 
-    // ─── Overlay ────────────────────────────────────────────────
+    // ─── Overlay ───────────────────────────────────────────────────────────────
 
     private void showOverlay() {
         overlayView = LayoutInflater.from(this).inflate(R.layout.overlay_answer, null);
         tvAnswer = overlayView.findViewById(R.id.tv_answer);
+        overlayView.setVisibility(View.GONE);
 
-        int layoutFlag = android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O
+        int layoutFlag = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
                 ? WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
                 : WindowManager.LayoutParams.TYPE_PHONE;
 
@@ -197,18 +198,13 @@ public class TestAccessibilityService extends AccessibilityService {
         params.gravity = Gravity.BOTTOM;
         params.y = 60;
 
-        overlayView.setVisibility(View.GONE);
-
         Button btnClose = overlayView.findViewById(R.id.btn_close);
-        btnClose.setOnClickListener(v -> {
-            overlayView.setVisibility(View.GONE);
-            lastMatchedQuestion = "";
-        });
+        btnClose.setOnClickListener(v -> overlayView.setVisibility(View.GONE));
 
         windowManager.addView(overlayView, params);
     }
 
-    private void updateOverlay(AnswerDatabase.Answer answer, String screenText) {
+    private void updateOverlay(AnswerDatabase.Answer answer) {
         handler.post(() -> {
             if (overlayView == null) return;
             if (answer == null) {
@@ -217,17 +213,14 @@ public class TestAccessibilityService extends AccessibilityService {
             }
 
             StringBuilder sb = new StringBuilder();
-            sb.append("📖 Вопрос ").append(answer.num).append("\n");
+            sb.append("📖 Вопрос ").append(answer.num).append("/55\n");
 
-            String typeLabel;
             switch (answer.type) {
-                case "text": typeLabel = "✏️ Введи:"; break;
-                case "radio": typeLabel = "🔘 Выбери:"; break;
-                case "checkbox": typeLabel = "☑️ Отметь:"; break;
-                case "match": typeLabel = "🔗 Соответствие:"; break;
-                default: typeLabel = "➡️";
+                case "text":     sb.append("✏️ Введи:\n"); break;
+                case "radio":    sb.append("🔘 Выбери:\n"); break;
+                case "checkbox": sb.append("☑️ Отметь:\n"); break;
+                case "match":    sb.append("🔗 Соответствие:\n"); break;
             }
-            sb.append(typeLabel).append("\n");
 
             if (answer.answerList != null) {
                 for (String a : answer.answerList) sb.append("  • ").append(a).append("\n");
