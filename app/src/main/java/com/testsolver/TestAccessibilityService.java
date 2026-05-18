@@ -47,7 +47,8 @@ public class TestAccessibilityService extends AccessibilityService {
 
     // AI
     private AiClient aiClient;
-    private String pendingAiText = "";
+    private String pendingAiText   = "";
+    private long   lastAiRequestMs = 0;
 
     // ─── Notification channel (нужен для MIUI — держит сервис живым) ─────────
 
@@ -183,9 +184,16 @@ public class TestAccessibilityService extends AccessibilityService {
 
     private void askAi(String screenText) {
         if (!AiClient.isEnabled(this)) { scheduleHide(); return; }
-        if (screenText.equals(pendingAiText)) return;
         if (screenText.length() < 20) { scheduleHide(); return; }
 
+        // Cooldown: не отправляем запрос чаще чем раз в N секунд
+        long now = System.currentTimeMillis();
+        if (now - lastAiRequestMs < AiClient.getCooldownMs(this)) return;
+
+        // Если тот же текст уже обрабатывается — не дублируем
+        if (screenText.equals(pendingAiText)) return;
+
+        lastAiRequestMs = now;
         pendingAiText = screenText;
         showOverlay("🤖 AI думает...");
         cancelHide();

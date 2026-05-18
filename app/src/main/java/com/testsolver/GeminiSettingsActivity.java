@@ -6,6 +6,7 @@ import android.os.Bundle;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.TextView;
+import android.widget.SeekBar;
 import android.widget.Toast;
 import androidx.appcompat.app.AppCompatActivity;
 
@@ -15,18 +16,23 @@ public class GeminiSettingsActivity extends AppCompatActivity {
     private EditText etGroqKey;
     private TextView tvStatus;
     private Button   btnToggleAi;
+    private SeekBar  sbCooldown;
+    private TextView tvCooldownVal;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_gemini_settings);
 
-        etGeminiKey = findViewById(R.id.et_gemini_key);
-        etGroqKey   = findViewById(R.id.et_groq_key);
-        tvStatus    = findViewById(R.id.tv_gemini_status);
-        btnToggleAi = findViewById(R.id.btn_toggle_ai);
+        etGeminiKey  = findViewById(R.id.et_gemini_key);
+        etGroqKey    = findViewById(R.id.et_groq_key);
+        tvStatus     = findViewById(R.id.tv_gemini_status);
+        btnToggleAi  = findViewById(R.id.btn_toggle_ai);
+        sbCooldown   = findViewById(R.id.sb_cooldown);
+        tvCooldownVal = findViewById(R.id.tv_cooldown_val);
 
         updateStatus();
+        initCooldownSlider();
 
         // Включить / выключить AI полностью
         btnToggleAi.setOnClickListener(v -> {
@@ -112,6 +118,25 @@ public class GeminiSettingsActivity extends AppCompatActivity {
                     tvStatus.setText(getStatusText() + "\n\n❌ Ошибка: " + error);
                 }
             });
+        });
+    }
+
+    private void initCooldownSlider() {
+        // Диапазон 3–15 секунд, шаг 1 сек
+        int currentSec = (int)(AiClient.getCooldownMs(this) / 1000);
+        currentSec = Math.max(3, Math.min(15, currentSec));
+        sbCooldown.setMax(12); // 0..12 → 3..15 сек
+        sbCooldown.setProgress(currentSec - 3);
+        tvCooldownVal.setText(currentSec + " сек");
+
+        sbCooldown.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+            @Override public void onProgressChanged(SeekBar sb, int progress, boolean fromUser) {
+                int sec = progress + 3;
+                tvCooldownVal.setText(sec + " сек");
+                AiClient.setCooldownMs(GeminiSettingsActivity.this, sec * 1000L);
+            }
+            @Override public void onStartTrackingTouch(SeekBar sb) {}
+            @Override public void onStopTrackingTouch(SeekBar sb) {}
         });
     }
 

@@ -36,7 +36,9 @@ public class AiClient {
     public static final String PREFS       = "ai_prefs";
     public static final String KEY_GEMINI  = "gemini_api_key";
     public static final String KEY_GROQ    = "groq_api_key";
-    public static final String KEY_ENABLED = "ai_enabled";
+    public static final String KEY_ENABLED  = "ai_enabled";
+    public static final String KEY_COOLDOWN = "ai_cooldown_ms";
+    public static final long   DEFAULT_COOLDOWN_MS = 7_000;
 
     // Endpoints
     private static final String GEMINI_URL =
@@ -48,10 +50,10 @@ public class AiClient {
     private static final String GROQ_MODEL = "llama-3.1-8b-instant";
 
     private static final String SYSTEM_PROMPT =
-            "Ты помощник для решения тестов. Тебе дают текст с экрана (вопрос + варианты). " +
-            "Дай КРАТКИЙ ответ — только правильные варианты, без пояснений. " +
-            "Несколько вариантов — каждый с новой строки. " +
-            "Если вопрос не ясен — ответь: Вопрос не определён.";
+            "Ты решаешь тест. Текст с экрана содержит вопрос и варианты ответа. " +
+            "Выведи ТОЛЬКО правильный ответ (или несколько — каждый с новой строки). " +
+            "Никаких пояснений, никаких вводных слов, никаких знаков препинания в конце. " +
+            "Если в тексте нет вопроса — ответь одним словом: нет.";
 
     private final ExecutorService executor    = Executors.newSingleThreadExecutor();
     private final Handler         mainHandler = new Handler(Looper.getMainLooper());
@@ -77,6 +79,16 @@ public class AiClient {
     public static boolean isEnabled(Context ctx) {
         return ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
                   .getBoolean(KEY_ENABLED, true);
+    }
+
+    public static long getCooldownMs(Context ctx) {
+        return ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                  .getLong(KEY_COOLDOWN, DEFAULT_COOLDOWN_MS);
+    }
+
+    public static void setCooldownMs(Context ctx, long ms) {
+        ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+           .edit().putLong(KEY_COOLDOWN, ms).apply();
     }
 
     public static void saveGeminiKey(Context ctx, String key) {
