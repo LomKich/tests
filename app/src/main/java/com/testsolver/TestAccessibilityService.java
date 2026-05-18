@@ -1,11 +1,15 @@
 package com.testsolver;
 
 import android.accessibilityservice.AccessibilityService;
+import android.app.Notification;
+import android.app.NotificationChannel;
+import android.app.NotificationManager;
 import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.graphics.PixelFormat;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
@@ -38,7 +42,6 @@ public class TestAccessibilityService extends AccessibilityService {
 
     private BroadcastReceiver pauseReceiver;
 
-    // Debounce
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
     private final Runnable hideRunnable = this::doHideOverlay;
     private static final long HIDE_DELAY_MS = 2500;
@@ -47,31 +50,83 @@ public class TestAccessibilityService extends AccessibilityService {
     private AiClient aiClient;
     private String pendingAiText = "";
 
+    // ─── Notification channel (нужен для MIUI — держит сервис живым) ─────────
+
+    private static final String NOTIF_CHANNEL_ID = "testsolver_service";
+    private static final int    NOTIF_ID         = 1001;
+
+    private void startForegroundCompat() {
+        NotificationManager nm =
+                (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            NotificationChannel ch = new NotificationChannel(
+                    NOTIF_CHANNEL_ID,
+                    "TestSolver",
+                    NotificationManager.IMPORTANCE_MIN   // тихое, без звука
+            );
+            ch.setShowBadge(false);
+            nm.createNotificationChannel(ch);
+        }
+
+        Notification.Builder builder;
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            builder = new Notification.Builder(this, NOTIF_CHANNEL_ID);
+        } else {
+            builder = new Notification.Builder(this);
+        }
+
+        Notification notif = builder
+                .setContentTitle("TestSolver активен")
+                .setContentText("Сервис работает в фоне")
+                .setSmallIcon(android.R.drawable.ic_dialog_info)
+                .setPriority(Notification.PRIORITY_MIN)
+                .build();
+
+        startForeground(NOTIF_ID, notif);
+    }
+
     // ─── Lifecycle ────────────────────────────────────────────────────────────
 
     @Override
     public void onServiceConnected() {
-        super.onServiceConnected();
-        instance = this;
-        windowManager = (WindowManager) getSystemService(WINDOW_SERVICE);
+        try {
+            super.onServiceConnected();
+            instance = this;
+            windowManager = (WindowManager) getSystemService(WINDOW_SERVICE);
 
-        db = new AnswerDatabase();
-        db.load(this);
+            db = new AnswerDatabase();
+            db.load(this);
 
-        aiClient = new AiClient();
+            aiClient = new AiClient();
 
-        pauseReceiver = new BroadcastReceiver() {
-            @Override
-            public void onReceive(Context ctx, Intent intent) {
-                isPaused = !isPaused;
-                updatePauseLabel();
-                if (isPaused) {
-                    cancelHide();
-                    doHideOverlay();
+            // Foreground-уведомление — критично для MIUI, чтобы сервис не убивался
+            startForegroundCompat();
+
+            pauseReceiver = new BroadcastReceiver() {
+                @Override
+                public void onReceive(Context ctx, Intent intent) {
+                    isPaused = !isPaused;
+                    updatePauseLabel();
+                    if (isPaused) {
+                        cancelHide();
+                        doHideOverlay();
+                    }
                 }
+            };
+
+            // ФИX: на Android 12+ нужен флаг RECEIVER_NOT_EXPORTED,
+            // иначе сервис крэшится и пишет "not working"
+            IntentFilter filter = new IntentFilter(ACTION_TOGGLE_PAUSE);
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                registerReceiver(pauseReceiver, filter, RECEIVER_NOT_EXPORTED);
+            } else {
+                registerReceiver(pauseReceiver, filter);
             }
-        };
-        registerReceiver(pauseReceiver, new IntentFilter(ACTION_TOGGLE_PAUSE));
+
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
     }
 
     @Override
@@ -81,6 +136,7 @@ public class TestAccessibilityService extends AccessibilityService {
         cancelHide();
         doHideOverlay();
         try { unregisterReceiver(pauseReceiver); } catch (Exception ignored) {}
+        try { stopForeground(true); } catch (Exception ignored) {}
         return super.onUnbind(intent);
     }
 
@@ -111,12 +167,10 @@ public class TestAccessibilityService extends AccessibilityService {
         AnswerDatabase.Answer ans = db.findAnswer(screenText);
 
         if (ans == null) {
-            // Ответа в базе нет — спрашиваем AI
             askAi(screenText);
             return;
         }
 
-        // Нашли в базе — отменяем всё
         cancelHide();
         pendingAiText = "";
 

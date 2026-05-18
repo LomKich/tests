@@ -54,6 +54,16 @@
         android:text="🪟 Разрешить наложение окон"
         android:textSize="13sp"
         android:backgroundTint="#1f6feb"
+        android:layout_marginBottom="8dp"/>
+
+    <!-- Для Redmi / MIUI / HyperOS — критично! -->
+    <Button
+        android:id="@+id/btn_battery"
+        android:layout_width="match_parent"
+        android:layout_height="48dp"
+        android:text="🔋 Фоновая работа (Redmi/MIUI)"
+        android:textSize="13sp"
+        android:backgroundTint="#b45309"
         android:layout_marginBottom="20dp"/>
 
     <!-- Divider -->
