@@ -32,6 +32,7 @@ public class AiClient {
     // SharedPreferences
     public static final String PREFS       = "ai_prefs";
     public static final String KEY_GEMINI  = "gemini_api_key";
+    public static final String KEY_ENABLED = "ai_enabled";
 
     // Endpoints
     // gemini-1.5-flash — гарантированный бесплатный tier (15 RPM, 1500 RPD) во всех регионах
@@ -49,11 +50,23 @@ public class AiClient {
     private final ExecutorService executor   = Executors.newSingleThreadExecutor();
     private final Handler         mainHandler = new Handler(Looper.getMainLooper());
 
-    private final String geminiKey; // null или пустой → Pollinations
+    private final String  geminiKey; // null или пустой → Pollinations
+    private final boolean enabled;
 
     public AiClient(Context ctx) {
         SharedPreferences prefs = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
         geminiKey = prefs.getString(KEY_GEMINI, "").trim();
+        enabled   = prefs.getBoolean(KEY_ENABLED, true);
+    }
+
+    public static void setEnabled(Context ctx, boolean on) {
+        ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+           .edit().putBoolean(KEY_ENABLED, on).apply();
+    }
+
+    public static boolean isEnabled(Context ctx) {
+        return ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                  .getBoolean(KEY_ENABLED, true);
     }
 
     /** Сохраняет ключ Gemini. Пустая строка = отключить Gemini, использовать Pollinations. */
@@ -74,6 +87,10 @@ public class AiClient {
     // ─── Public ask ───────────────────────────────────────────────────────────
 
     public void ask(String screenText, Callback callback) {
+        if (!enabled) {
+            // AI отключён — молча игнорируем
+            return;
+        }
         executor.execute(() -> {
             try {
                 String answer = usingGemini()
