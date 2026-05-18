@@ -41,6 +41,12 @@ public class AiClient {
     public static final String KEY_COOLDOWN = "ai_cooldown_ms";
     public static final long   DEFAULT_COOLDOWN_MS = 7_000;
 
+    // Режимы работы
+    public static final String KEY_MODE    = "work_mode";
+    public static final int    MODE_BOTH   = 0;  // База + AI
+    public static final int    MODE_DB     = 1;  // Только база
+    public static final int    MODE_AI     = 2;  // Только AI
+
     // Endpoints
     private static final String GEMINI_URL =
             "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=";
@@ -90,6 +96,16 @@ public class AiClient {
     public static void setCooldownMs(Context ctx, long ms) {
         ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
            .edit().putLong(KEY_COOLDOWN, ms).apply();
+    }
+
+    public static int getMode(Context ctx) {
+        return ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                  .getInt(KEY_MODE, MODE_BOTH);
+    }
+
+    public static void setMode(Context ctx, int mode) {
+        ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+           .edit().putInt(KEY_MODE, mode).apply();
     }
 
     public static void saveGeminiKey(Context ctx, String key) {

@@ -6,6 +6,8 @@ import android.os.Bundle;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.TextView;
+import android.widget.RadioButton;
+import android.widget.RadioGroup;
 import android.widget.SeekBar;
 import android.widget.Toast;
 import androidx.appcompat.app.AppCompatActivity;
@@ -16,8 +18,9 @@ public class GeminiSettingsActivity extends AppCompatActivity {
     private EditText etGroqKey;
     private TextView tvStatus;
     private Button   btnToggleAi;
-    private SeekBar  sbCooldown;
-    private TextView tvCooldownVal;
+    private SeekBar     sbCooldown;
+    private TextView    tvCooldownVal;
+    private RadioGroup  rgMode;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -28,11 +31,13 @@ public class GeminiSettingsActivity extends AppCompatActivity {
         etGroqKey    = findViewById(R.id.et_groq_key);
         tvStatus     = findViewById(R.id.tv_gemini_status);
         btnToggleAi  = findViewById(R.id.btn_toggle_ai);
-        sbCooldown   = findViewById(R.id.sb_cooldown);
+        sbCooldown    = findViewById(R.id.sb_cooldown);
         tvCooldownVal = findViewById(R.id.tv_cooldown_val);
+        rgMode        = findViewById(R.id.rg_mode);
 
         updateStatus();
         initCooldownSlider();
+        initModeRadio();
 
         // Включить / выключить AI полностью
         btnToggleAi.setOnClickListener(v -> {
@@ -121,6 +126,24 @@ public class GeminiSettingsActivity extends AppCompatActivity {
         });
     }
 
+    private void initModeRadio() {
+        int mode = AiClient.getMode(this);
+        int checkedId;
+        if      (mode == AiClient.MODE_DB) checkedId = R.id.rb_mode_db;
+        else if (mode == AiClient.MODE_AI) checkedId = R.id.rb_mode_ai;
+        else                               checkedId = R.id.rb_mode_both;
+        rgMode.check(checkedId);
+
+        rgMode.setOnCheckedChangeListener((group, id) -> {
+            int newMode;
+            if      (id == R.id.rb_mode_db) newMode = AiClient.MODE_DB;
+            else if (id == R.id.rb_mode_ai) newMode = AiClient.MODE_AI;
+            else                            newMode = AiClient.MODE_BOTH;
+            AiClient.setMode(this, newMode);
+            updateStatus();
+        });
+    }
+
     private void initCooldownSlider() {
         // Диапазон 3–15 секунд, шаг 1 сек
         int currentSec = (int)(AiClient.getCooldownMs(this) / 1000);
@@ -146,15 +169,19 @@ public class GeminiSettingsActivity extends AppCompatActivity {
         String  geminiKey = AiClient.getGeminiKey(this);
 
         if (!enabled) return "🚫 AI отключён\n(оверлей будет показывать только ответы из базы)";
+        int mode = AiClient.getMode(this);
+        String modeStr = mode == AiClient.MODE_DB ? " | 📂 Только база"
+                       : mode == AiClient.MODE_AI ? " | 🤖 Только AI"
+                       : " | 🔀 База + AI";
         if (!groqKey.isEmpty()) {
             String hint = groqKey.length() > 6 ? "…" + groqKey.substring(groqKey.length() - 4) : "****";
-            return "Режим: ⚡ Groq (стриминг)\nКлюч: " + hint;
+            return "AI: ⚡ Groq (стриминг)\nКлюч: " + hint + modeStr;
         }
         if (!geminiKey.isEmpty()) {
             String hint = geminiKey.length() > 6 ? "…" + geminiKey.substring(geminiKey.length() - 4) : "****";
-            return "Режим: ✨ Gemini API\nКлюч: " + hint;
+            return "AI: ✨ Gemini\nКлюч: " + hint + modeStr;
         }
-        return "Режим: 🌐 Pollinations.ai\n(без ключа, бесплатно)";
+        return "AI: 🌐 Pollinations.ai (без ключа)" + modeStr;
     }
 
     private void updateStatus() {

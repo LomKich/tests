@@ -165,20 +165,35 @@ public class TestAccessibilityService extends AccessibilityService {
         String screenText = sb.toString().trim();
         if (screenText.isEmpty()) return;
 
-        AnswerDatabase.Answer ans = db.findAnswer(screenText);
+        int mode = AiClient.getMode(this);
 
-        if (ans == null) {
+        // ── Режим: только AI ─────────────────────────────────────────────────
+        if (mode == AiClient.MODE_AI) {
             askAi(screenText);
             return;
         }
 
-        cancelHide();
-        pendingAiText = "";
+        // ── Режим: база (± AI) ───────────────────────────────────────────────
+        AnswerDatabase.Answer ans = db.findAnswer(screenText);
 
-        if (ans.question.equals(lastQuestion)) return;
-        lastQuestion = ans.question;
+        if (ans != null) {
+            cancelHide();
+            pendingAiText = "";
+            if (ans.question.equals(lastQuestion)) return;
+            lastQuestion = ans.question;
+            showOverlay(buildDisplay(ans));
+            return;
+        }
 
-        showOverlay(buildDisplay(ans));
+        // Ответ в базе не найден
+        if (mode == AiClient.MODE_DB) {
+            // Только база — скрываем оверлей и ждём
+            scheduleHide();
+            return;
+        }
+
+        // MODE_BOTH — идём в AI
+        askAi(screenText);
     }
 
     // ─── AI fallback ──────────────────────────────────────────────────────────
