@@ -38,6 +38,11 @@ public class TestAccessibilityService extends AccessibilityService {
 
     private BroadcastReceiver pauseReceiver;
 
+    // Debounce: скрываем оверлей только если 2.5 сек нет ответа
+    private final Handler mainHandler = new Handler(Looper.getMainLooper());
+    private final Runnable hideRunnable = this::doHideOverlay;
+    private static final long HIDE_DELAY_MS = 2500;
+
     // ─── Lifecycle ────────────────────────────────────────────────────────────
 
     @Override
@@ -54,7 +59,10 @@ public class TestAccessibilityService extends AccessibilityService {
             public void onReceive(Context ctx, Intent intent) {
                 isPaused = !isPaused;
                 updatePauseLabel();
-                if (isPaused) hideOverlay();
+                if (isPaused) {
+                    cancelHide();
+                    doHideOverlay();
+                }
             }
         };
         registerReceiver(pauseReceiver, new IntentFilter(ACTION_TOGGLE_PAUSE));
@@ -64,7 +72,8 @@ public class TestAccessibilityService extends AccessibilityService {
     public boolean onUnbind(Intent intent) {
         instance = null;
         isPaused = false;
-        hideOverlay();
+        cancelHide();
+        doHideOverlay();
         try { unregisterReceiver(pauseReceiver); } catch (Exception ignored) {}
         return super.onUnbind(intent);
     }
@@ -94,12 +103,18 @@ public class TestAccessibilityService extends AccessibilityService {
         if (screenText.isEmpty()) return;
 
         AnswerDatabase.Answer ans = db.findAnswer(screenText);
+
         if (ans == null) {
-            hideOverlay();
-            lastQuestion = "";
+            // Не скрываем сразу — ждём HIDE_DELAY_MS
+            // Если за это время придёт ответ — отменим скрытие
+            scheduleHide();
             return;
         }
 
+        // Нашли ответ — отменяем отложенное скрытие
+        cancelHide();
+
+        // Не обновляем если тот же вопрос
         if (ans.question.equals(lastQuestion)) return;
         lastQuestion = ans.question;
 
@@ -108,6 +123,18 @@ public class TestAccessibilityService extends AccessibilityService {
         if ("text".equals(ans.type) && ans.answerText != null && !ans.answerText.isEmpty()) {
             autoFillText(ans.answerText);
         }
+    }
+
+    // ─── Hide debounce ────────────────────────────────────────────────────────
+
+    private void scheduleHide() {
+        // Если уже запланировано — не дублируем
+        mainHandler.removeCallbacks(hideRunnable);
+        mainHandler.postDelayed(hideRunnable, HIDE_DELAY_MS);
+    }
+
+    private void cancelHide() {
+        mainHandler.removeCallbacks(hideRunnable);
     }
 
     // ─── Text collection ──────────────────────────────────────────────────────
@@ -155,7 +182,7 @@ public class TestAccessibilityService extends AccessibilityService {
     // ─── Auto-fill ────────────────────────────────────────────────────────────
 
     private void autoFillText(String answer) {
-        new Handler(Looper.getMainLooper()).postDelayed(() -> {
+        mainHandler.postDelayed(() -> {
             AccessibilityNodeInfo root = getRootInActiveWindow();
             if (root == null) return;
             fillFirstEditText(root, answer);
@@ -186,7 +213,7 @@ public class TestAccessibilityService extends AccessibilityService {
     // ─── Overlay ──────────────────────────────────────────────────────────────
 
     private void showOverlay(String text) {
-        new Handler(Looper.getMainLooper()).post(() -> {
+        mainHandler.post(() -> {
             if (!isOverlayShown) createOverlay();
             if (tvAnswer != null) tvAnswer.setText(text);
         });
@@ -199,7 +226,12 @@ public class TestAccessibilityService extends AccessibilityService {
             tvPauseLabel = overlayView.findViewById(R.id.tv_pause_label);
 
             overlayView.findViewById(R.id.btn_close)
-                    .setOnClickListener(v -> hideOverlay());
+                    .setOnClickListener(v -> {
+                        cancelHide();
+                        doHideOverlay();
+                        // После ручного закрытия — не показывать снова для текущего вопроса
+                        // lastQuestion остаётся, чтобы не всплыло заново
+                    });
 
             View handle = overlayView.findViewById(R.id.drag_handle);
             final int[] downRawX = {0}, downRawY = {0};
@@ -252,23 +284,28 @@ public class TestAccessibilityService extends AccessibilityService {
     }
 
     private void updatePauseLabel() {
-        new Handler(Looper.getMainLooper()).post(() -> {
+        mainHandler.post(() -> {
             if (tvPauseLabel != null)
                 tvPauseLabel.setText(isPaused ? "⏸ TestSolver" : "▶ TestSolver");
         });
     }
 
+    /** Внутренний метод реального скрытия — вызывается только из debounce или явного закрытия. */
+    private void doHideOverlay() {
+        try {
+            if (overlayView != null) {
+                windowManager.removeView(overlayView);
+                overlayView = null;
+            }
+            tvAnswer     = null;
+            tvPauseLabel = null;
+            isOverlayShown = false;
+            lastQuestion   = "";   // сбрасываем только при реальном скрытии
+        } catch (Exception ignored) {}
+    }
+
+    /** Публичный метод для старого кода — делегирует в doHideOverlay через mainHandler. */
     public void hideOverlay() {
-        new Handler(Looper.getMainLooper()).post(() -> {
-            try {
-                if (overlayView != null) {
-                    windowManager.removeView(overlayView);
-                    overlayView = null;
-                }
-                tvAnswer     = null;
-                tvPauseLabel = null;
-                isOverlayShown = false;
-            } catch (Exception ignored) {}
-        });
+        mainHandler.post(this::doHideOverlay);
     }
 }
