@@ -1,1 +1,303 @@
-1
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#0d1117">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="20dp">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="✨ AI настройки"
+            android:textSize="22sp"
+            android:textColor="#58a6ff"
+            android:textStyle="bold"
+            android:layout_marginBottom="8dp"/>
+
+        <!-- Текущий режим -->
+        <TextView
+            android:id="@+id/tv_gemini_status"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Загрузка..."
+            android:textColor="#c9d1d9"
+            android:textSize="14sp"
+            android:background="#161b22"
+            android:padding="14dp"
+            android:lineSpacingExtra="4dp"
+            android:layout_marginBottom="12dp"/>
+
+        <!-- Главный рубильник -->
+        <Button
+            android:id="@+id/btn_toggle_ai"
+            android:layout_width="match_parent"
+            android:layout_height="48dp"
+            android:text="🚫 Выключить AI"
+            android:textSize="14sp"
+            android:textStyle="bold"
+            android:backgroundTint="#6e3030"
+            android:layout_marginBottom="20dp"/>
+
+        <!-- ═══ Блок Pollinations ════════════════════════════════════════════ -->
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="🌐 Pollinations.ai — без ключа"
+            android:textColor="#58a6ff"
+            android:textSize="13sp"
+            android:textStyle="bold"
+            android:layout_marginBottom="4dp"/>
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Работает сразу, без регистрации. Медленнее (~4–6 сек), стриминга нет."
+            android:textColor="#6e7681"
+            android:textSize="12sp"
+            android:layout_marginBottom="16dp"/>
+
+        <!-- ─── разделитель ───────────────────────────────────────────────── -->
+        <View android:layout_width="match_parent" android:layout_height="1dp"
+            android:background="#21262d" android:layout_marginBottom="16dp"/>
+
+        <!-- ═══ Блок Gemini ══════════════════════════════════════════════════ -->
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="✨ Gemini API — с ключом"
+            android:textColor="#58a6ff"
+            android:textSize="13sp"
+            android:textStyle="bold"
+            android:layout_marginBottom="4dp"/>
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Бесплатно: 1500 запросов/день. Быстрее (~1–2 сек). Нужен Google-аккаунт."
+            android:textColor="#6e7681"
+            android:textSize="12sp"
+            android:layout_marginBottom="12dp"/>
+
+        <Button
+            android:id="@+id/btn_get_key"
+            android:layout_width="match_parent"
+            android:layout_height="44dp"
+            android:text="🔑 Получить ключ Gemini (Google)"
+            android:textSize="13sp"
+            android:backgroundTint="#238636"
+            android:layout_marginBottom="10dp"/>
+
+        <EditText
+            android:id="@+id/et_gemini_key"
+            android:layout_width="match_parent"
+            android:layout_height="48dp"
+            android:hint="Вставьте ключ Gemini (AIza...)"
+            android:textColorHint="#6e7681"
+            android:textColor="#c9d1d9"
+            android:background="#161b22"
+            android:padding="12dp"
+            android:inputType="textVisiblePassword"
+            android:layout_marginBottom="8dp"/>
+
+        <Button
+            android:id="@+id/btn_save_key"
+            android:layout_width="match_parent"
+            android:layout_height="44dp"
+            android:text="💾 Сохранить ключ Gemini"
+            android:textSize="13sp"
+            android:backgroundTint="#1f6feb"
+            android:layout_marginBottom="8dp"/>
+
+        <Button
+            android:id="@+id/btn_clear_key"
+            android:layout_width="match_parent"
+            android:layout_height="44dp"
+            android:text="🗑 Удалить ключ Gemini"
+            android:textSize="12sp"
+            android:backgroundTint="#6e3030"
+            android:layout_marginBottom="16dp"/>
+
+        <!-- ─── разделитель ───────────────────────────────────────────────── -->
+        <View android:layout_width="match_parent" android:layout_height="1dp"
+            android:background="#21262d" android:layout_marginBottom="16dp"/>
+
+        <!-- ═══ Блок Groq (стриминг) ════════════════════════════════════════ -->
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="⚡ Groq API — стриминг (рекомендуется)"
+            android:textColor="#e3b341"
+            android:textSize="13sp"
+            android:textStyle="bold"
+            android:layout_marginBottom="4dp"/>
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Самый быстрый (~0.3–0.8 сек). Ответ появляется прямо во время генерации. Бесплатно: 14 400 запросов/день. Нужна регистрация на console.groq.com."
+            android:textColor="#6e7681"
+            android:textSize="12sp"
+            android:layout_marginBottom="12dp"/>
+
+        <Button
+            android:id="@+id/btn_get_groq_key"
+            android:layout_width="match_parent"
+            android:layout_height="44dp"
+            android:text="🔑 Получить ключ Groq (бесплатно)"
+            android:textSize="13sp"
+            android:backgroundTint="#9e6a03"
+            android:layout_marginBottom="10dp"/>
+
+        <EditText
+            android:id="@+id/et_groq_key"
+            android:layout_width="match_parent"
+            android:layout_height="48dp"
+            android:hint="Вставьте ключ Groq (gsk_...)"
+            android:textColorHint="#6e7681"
+            android:textColor="#c9d1d9"
+            android:background="#161b22"
+            android:padding="12dp"
+            android:inputType="textVisiblePassword"
+            android:layout_marginBottom="8dp"/>
+
+        <Button
+            android:id="@+id/btn_save_groq_key"
+            android:layout_width="match_parent"
+            android:layout_height="44dp"
+            android:text="💾 Сохранить ключ Groq"
+            android:textSize="13sp"
+            android:backgroundTint="#9e6a03"
+            android:layout_marginBottom="8dp"/>
+
+        <Button
+            android:id="@+id/btn_clear_groq_key"
+            android:layout_width="match_parent"
+            android:layout_height="44dp"
+            android:text="🗑 Удалить ключ Groq"
+            android:textSize="12sp"
+            android:backgroundTint="#6e3030"
+            android:layout_marginBottom="16dp"/>
+
+
+
+        <!-- ─── разделитель ───────────────────────────────────────────────── -->
+        <View android:layout_width="match_parent" android:layout_height="1dp"
+            android:background="#21262d" android:layout_marginBottom="16dp"/>
+
+        <!-- ═══ Режим работы ════════════════════════════════════════════════ -->
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="🔀 Режим работы"
+            android:textColor="#58a6ff"
+            android:textSize="13sp"
+            android:textStyle="bold"
+            android:layout_marginBottom="10dp"/>
+
+        <RadioGroup
+            android:id="@+id/rg_mode"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:layout_marginBottom="16dp">
+
+            <RadioButton
+                android:id="@+id/rb_mode_both"
+                android:layout_width="match_parent"
+                android:layout_height="44dp"
+                android:text="🔀  База + AI (если не нашли в базе — спросить AI)"
+                android:textColor="#c9d1d9"
+                android:textSize="13sp"
+                android:buttonTint="#58a6ff"
+                android:checked="true"
+                android:paddingStart="8dp"/>
+
+            <RadioButton
+                android:id="@+id/rb_mode_db"
+                android:layout_width="match_parent"
+                android:layout_height="44dp"
+                android:text="📂  Только база (AI не используется)"
+                android:textColor="#c9d1d9"
+                android:textSize="13sp"
+                android:buttonTint="#58a6ff"
+                android:paddingStart="8dp"/>
+
+            <RadioButton
+                android:id="@+id/rb_mode_ai"
+                android:layout_width="match_parent"
+                android:layout_height="44dp"
+                android:text="🤖  Только AI (базу игнорировать)"
+                android:textColor="#c9d1d9"
+                android:textSize="13sp"
+                android:buttonTint="#58a6ff"
+                android:paddingStart="8dp"/>
+
+        </RadioGroup>
+
+        <!-- ─── разделитель ───────────────────────────────────────────────── -->
+        <View android:layout_width="match_parent" android:layout_height="1dp"
+            android:background="#21262d" android:layout_marginBottom="16dp"/>
+
+        <!-- ═══ Cooldown ════════════════════════════════════════════════════ -->
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="⏱ Интервал запросов к AI"
+            android:textColor="#58a6ff"
+            android:textSize="13sp"
+            android:textStyle="bold"
+            android:layout_marginBottom="4dp"/>
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Как часто отправлять запрос, если ответ из базы не найден."
+            android:textColor="#6e7681"
+            android:textSize="12sp"
+            android:layout_marginBottom="10dp"/>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:layout_marginBottom="16dp">
+
+            <SeekBar
+                android:id="@+id/sb_cooldown"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:max="12"
+                android:progress="4"/>
+
+            <TextView
+                android:id="@+id/tv_cooldown_val"
+                android:layout_width="52dp"
+                android:layout_height="wrap_content"
+                android:text="7 сек"
+                android:textColor="#c9d1d9"
+                android:textSize="13sp"
+                android:textStyle="bold"
+                android:gravity="end"/>
+        </LinearLayout>
+
+        <!-- ─── разделитель ───────────────────────────────────────────────── -->
+        <View android:layout_width="match_parent" android:layout_height="1dp"
+            android:background="#21262d" android:layout_marginBottom="12dp"/>
+
+        <Button
+            android:id="@+id/btn_test_key"
+            android:layout_width="match_parent"
+            android:layout_height="44dp"
+            android:text="🧪 Проверить текущий AI"
+            android:textSize="13sp"
+            android:backgroundTint="#6e4a9e"/>
+
+    </LinearLayout>
+</ScrollView>
