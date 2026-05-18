@@ -38,10 +38,14 @@ public class TestAccessibilityService extends AccessibilityService {
 
     private BroadcastReceiver pauseReceiver;
 
-    // Debounce: скрываем оверлей только если 2.5 сек нет ответа
+    // Debounce
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
     private final Runnable hideRunnable = this::doHideOverlay;
     private static final long HIDE_DELAY_MS = 2500;
+
+    // AI
+    private AiClient aiClient;
+    private String pendingAiText = "";
 
     // ─── Lifecycle ────────────────────────────────────────────────────────────
 
@@ -53,6 +57,8 @@ public class TestAccessibilityService extends AccessibilityService {
 
         db = new AnswerDatabase();
         db.load(this);
+
+        aiClient = new AiClient();
 
         pauseReceiver = new BroadcastReceiver() {
             @Override
@@ -105,16 +111,15 @@ public class TestAccessibilityService extends AccessibilityService {
         AnswerDatabase.Answer ans = db.findAnswer(screenText);
 
         if (ans == null) {
-            // Не скрываем сразу — ждём HIDE_DELAY_MS
-            // Если за это время придёт ответ — отменим скрытие
-            scheduleHide();
+            // Ответа в базе нет — спрашиваем AI
+            askAi(screenText);
             return;
         }
 
-        // Нашли ответ — отменяем отложенное скрытие
+        // Нашли в базе — отменяем всё
         cancelHide();
+        pendingAiText = "";
 
-        // Не обновляем если тот же вопрос
         if (ans.question.equals(lastQuestion)) return;
         lastQuestion = ans.question;
 
@@ -125,10 +130,48 @@ public class TestAccessibilityService extends AccessibilityService {
         }
     }
 
+    // ─── AI fallback ──────────────────────────────────────────────────────────
+
+    private void askAi(String screenText) {
+        if (screenText.equals(pendingAiText)) return;
+        if (screenText.length() < 20) { scheduleHide(); return; }
+
+        pendingAiText = screenText;
+        showOverlay("🤖 AI думает...");
+        cancelHide();
+
+        aiClient.ask(screenText, new AiClient.Callback() {
+            @Override
+            public void onResult(String answer) {
+                if (!screenText.equals(pendingAiText)) return;
+                pendingAiText = "";
+                lastQuestion  = screenText;
+
+                if (answer == null || answer.trim().isEmpty()
+                        || answer.contains("Вопрос не определён")) {
+                    scheduleHide();
+                    return;
+                }
+                showOverlay("🤖 " + answer.trim());
+            }
+
+            @Override
+            public void onError(String error) {
+                if (!screenText.equals(pendingAiText)) return;
+                pendingAiText = "";
+                showOverlay("🤖 Нет связи");
+                scheduleHide();
+            }
+        });
+    }
+
+    public void reloadAi() {
+        aiClient = new AiClient();
+    }
+
     // ─── Hide debounce ────────────────────────────────────────────────────────
 
     private void scheduleHide() {
-        // Если уже запланировано — не дублируем
         mainHandler.removeCallbacks(hideRunnable);
         mainHandler.postDelayed(hideRunnable, HIDE_DELAY_MS);
     }
@@ -229,8 +272,6 @@ public class TestAccessibilityService extends AccessibilityService {
                     .setOnClickListener(v -> {
                         cancelHide();
                         doHideOverlay();
-                        // После ручного закрытия — не показывать снова для текущего вопроса
-                        // lastQuestion остаётся, чтобы не всплыло заново
                     });
 
             View handle = overlayView.findViewById(R.id.drag_handle);
@@ -290,7 +331,6 @@ public class TestAccessibilityService extends AccessibilityService {
         });
     }
 
-    /** Внутренний метод реального скрытия — вызывается только из debounce или явного закрытия. */
     private void doHideOverlay() {
         try {
             if (overlayView != null) {
@@ -300,11 +340,11 @@ public class TestAccessibilityService extends AccessibilityService {
             tvAnswer     = null;
             tvPauseLabel = null;
             isOverlayShown = false;
-            lastQuestion   = "";   // сбрасываем только при реальном скрытии
+            lastQuestion   = "";
+            pendingAiText  = "";
         } catch (Exception ignored) {}
     }
 
-    /** Публичный метод для старого кода — делегирует в doHideOverlay через mainHandler. */
     public void hideOverlay() {
         mainHandler.post(this::doHideOverlay);
     }
