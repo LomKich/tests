@@ -192,6 +192,12 @@ public class TestAccessibilityService extends AccessibilityService {
 
         aiClient.ask(screenText, new AiClient.Callback() {
             @Override
+            public void onPartial(String partial) {
+                if (!screenText.equals(pendingAiText)) return;
+                showOverlay(partial);
+            }
+
+            @Override
             public void onResult(String answer) {
                 if (!screenText.equals(pendingAiText)) return;
                 pendingAiText = "";

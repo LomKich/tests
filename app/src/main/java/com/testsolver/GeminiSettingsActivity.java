@@ -11,7 +11,8 @@ import androidx.appcompat.app.AppCompatActivity;
 
 public class GeminiSettingsActivity extends AppCompatActivity {
 
-    private EditText etKey;
+    private EditText etGeminiKey;
+    private EditText etGroqKey;
     private TextView tvStatus;
     private Button   btnToggleAi;
 
@@ -20,7 +21,8 @@ public class GeminiSettingsActivity extends AppCompatActivity {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_gemini_settings);
 
-        etKey       = findViewById(R.id.et_gemini_key);
+        etGeminiKey = findViewById(R.id.et_gemini_key);
+        etGroqKey   = findViewById(R.id.et_groq_key);
         tvStatus    = findViewById(R.id.tv_gemini_status);
         btnToggleAi = findViewById(R.id.btn_toggle_ai);
 
@@ -37,36 +39,62 @@ public class GeminiSettingsActivity extends AppCompatActivity {
                     Toast.LENGTH_SHORT).show();
         });
 
-        // Получить ключ Gemini
+        // ── Groq ──────────────────────────────────────────────────────────────
+
+        findViewById(R.id.btn_get_groq_key).setOnClickListener(v ->
+                startActivity(new Intent(Intent.ACTION_VIEW,
+                        Uri.parse("https://console.groq.com/keys"))));
+
+        findViewById(R.id.btn_save_groq_key).setOnClickListener(v -> {
+            String key = etGroqKey.getText().toString().trim();
+            if (key.isEmpty()) {
+                Toast.makeText(this, "Введите ключ Groq", Toast.LENGTH_SHORT).show();
+                return;
+            }
+            AiClient.saveGroqKey(this, key);
+            AiClient.setEnabled(this, true);
+            reloadService();
+            etGroqKey.setText("");
+            updateStatus();
+            Toast.makeText(this, "✅ Ключ Groq сохранён — стриминг активен!", Toast.LENGTH_SHORT).show();
+        });
+
+        findViewById(R.id.btn_clear_groq_key).setOnClickListener(v -> {
+            AiClient.saveGroqKey(this, "");
+            reloadService();
+            updateStatus();
+            Toast.makeText(this, "Groq-ключ удалён", Toast.LENGTH_SHORT).show();
+        });
+
+        // ── Gemini ────────────────────────────────────────────────────────────
+
         findViewById(R.id.btn_get_key).setOnClickListener(v ->
                 startActivity(new Intent(Intent.ACTION_VIEW,
                         Uri.parse("https://aistudio.google.com/app/apikey"))));
 
-        // Сохранить ключ
         findViewById(R.id.btn_save_key).setOnClickListener(v -> {
-            String key = etKey.getText().toString().trim();
+            String key = etGeminiKey.getText().toString().trim();
             if (key.isEmpty()) {
-                Toast.makeText(this, "Введите ключ", Toast.LENGTH_SHORT).show();
+                Toast.makeText(this, "Введите ключ Gemini", Toast.LENGTH_SHORT).show();
                 return;
             }
             AiClient.saveGeminiKey(this, key);
-            // При сохранении ключа — автоматически включаем AI
             AiClient.setEnabled(this, true);
             reloadService();
-            etKey.setText("");
+            etGeminiKey.setText("");
             updateStatus();
-            Toast.makeText(this, "✅ Ключ сохранён, используется Gemini", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, "✅ Ключ Gemini сохранён", Toast.LENGTH_SHORT).show();
         });
 
-        // Удалить ключ → Pollinations
         findViewById(R.id.btn_clear_key).setOnClickListener(v -> {
             AiClient.saveGeminiKey(this, "");
             reloadService();
             updateStatus();
-            Toast.makeText(this, "Ключ удалён, используется Pollinations.ai", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, "Gemini-ключ удалён", Toast.LENGTH_SHORT).show();
         });
 
-        // Проверить текущий AI
+        // ── Тест ─────────────────────────────────────────────────────────────
+
         findViewById(R.id.btn_test_key).setOnClickListener(v -> {
             if (!AiClient.isEnabled(this)) {
                 Toast.makeText(this, "AI выключен — сначала включи", Toast.LENGTH_SHORT).show();
@@ -74,31 +102,39 @@ public class GeminiSettingsActivity extends AppCompatActivity {
             }
             tvStatus.append("\n\n⏳ Тестирую...");
             new AiClient(this).ask("Скажи одно слово: Привет", new AiClient.Callback() {
+                @Override public void onPartial(String p) {
+                    tvStatus.setText(getStatusText() + "\n\n⚡ " + p);
+                }
                 @Override public void onResult(String answer) {
-                    tvStatus.append("\n✅ Работает! Ответ: " + answer);
+                    tvStatus.setText(getStatusText() + "\n\n✅ Работает! Ответ: " + answer);
                 }
                 @Override public void onError(String error) {
-                    tvStatus.append("\n❌ Ошибка: " + error);
+                    tvStatus.setText(getStatusText() + "\n\n❌ Ошибка: " + error);
                 }
             });
         });
     }
 
+    private String getStatusText() {
+        boolean enabled  = AiClient.isEnabled(this);
+        String  groqKey  = AiClient.getGroqKey(this);
+        String  geminiKey = AiClient.getGeminiKey(this);
+
+        if (!enabled) return "🚫 AI отключён\n(оверлей будет показывать только ответы из базы)";
+        if (!groqKey.isEmpty()) {
+            String hint = groqKey.length() > 6 ? "…" + groqKey.substring(groqKey.length() - 4) : "****";
+            return "Режим: ⚡ Groq (стриминг)\nКлюч: " + hint;
+        }
+        if (!geminiKey.isEmpty()) {
+            String hint = geminiKey.length() > 6 ? "…" + geminiKey.substring(geminiKey.length() - 4) : "****";
+            return "Режим: ✨ Gemini API\nКлюч: " + hint;
+        }
+        return "Режим: 🌐 Pollinations.ai\n(без ключа, бесплатно)";
+    }
+
     private void updateStatus() {
         boolean enabled = AiClient.isEnabled(this);
-        String  key     = AiClient.getGeminiKey(this);
-
-        StringBuilder sb = new StringBuilder();
-        if (!enabled) {
-            sb.append("🚫 AI отключён\n(оверлей будет показывать только ответы из базы)");
-        } else if (key.isEmpty()) {
-            sb.append("Режим: 🌐 Pollinations.ai\n(без ключа, бесплатно)");
-        } else {
-            String hint = key.length() > 6 ? "…" + key.substring(key.length() - 4) : "****";
-            sb.append("Режим: ✨ Gemini API\nКлюч: ").append(hint);
-        }
-
-        tvStatus.setText(sb.toString());
+        tvStatus.setText(getStatusText());
         btnToggleAi.setText(enabled ? "🚫 Выключить AI" : "✅ Включить AI");
         btnToggleAi.setBackgroundTintList(
                 android.content.res.ColorStateList.valueOf(

@@ -18,28 +18,34 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 /**
- * AI-клиент с двумя режимами:
- *   1. Gemini API (если задан ключ) — быстро, надёжно, бесплатный tier
- *   2. Pollinations.ai (без ключа)  — вообще без регистрации, чуть медленнее
+ * AI-клиент с тремя режимами (приоритет: Groq > Gemini > Pollinations):
+ *   1. Groq API     — стриминг, ~0.3–0.8 сек, бесплатный tier
+ *   2. Gemini API   — быстро, надёжно, бесплатный tier
+ *   3. Pollinations — без ключа, чуть медленнее
  */
 public class AiClient {
 
     public interface Callback {
         void onResult(String answer);
         void onError(String error);
+        /** Вызывается во время стриминга с накопленным текстом. По умолчанию — ничего. */
+        default void onPartial(String partial) {}
     }
 
     // SharedPreferences
     public static final String PREFS       = "ai_prefs";
     public static final String KEY_GEMINI  = "gemini_api_key";
+    public static final String KEY_GROQ    = "groq_api_key";
     public static final String KEY_ENABLED = "ai_enabled";
 
     // Endpoints
-    // gemini-1.5-flash — гарантированный бесплатный tier (15 RPM, 1500 RPD) во всех регионах
     private static final String GEMINI_URL =
             "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=";
+    private static final String GROQ_URL =
+            "https://api.groq.com/openai/v1/chat/completions";
     private static final String POLLINATIONS_URL =
             "https://text.pollinations.ai/";
+    private static final String GROQ_MODEL = "llama-3.1-8b-instant";
 
     private static final String SYSTEM_PROMPT =
             "Ты помощник для решения тестов. Тебе дают текст с экрана (вопрос + варианты). " +
@@ -47,17 +53,21 @@ public class AiClient {
             "Несколько вариантов — каждый с новой строки. " +
             "Если вопрос не ясен — ответь: Вопрос не определён.";
 
-    private final ExecutorService executor   = Executors.newSingleThreadExecutor();
+    private final ExecutorService executor    = Executors.newSingleThreadExecutor();
     private final Handler         mainHandler = new Handler(Looper.getMainLooper());
 
-    private final String  geminiKey; // null или пустой → Pollinations
+    private final String  geminiKey;
+    private final String  groqKey;
     private final boolean enabled;
 
     public AiClient(Context ctx) {
         SharedPreferences prefs = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
         geminiKey = prefs.getString(KEY_GEMINI, "").trim();
+        groqKey   = prefs.getString(KEY_GROQ,   "").trim();
         enabled   = prefs.getBoolean(KEY_ENABLED, true);
     }
+
+    // ─── Static helpers ───────────────────────────────────────────────────────
 
     public static void setEnabled(Context ctx, boolean on) {
         ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
@@ -69,7 +79,6 @@ public class AiClient {
                   .getBoolean(KEY_ENABLED, true);
     }
 
-    /** Сохраняет ключ Gemini. Пустая строка = отключить Gemini, использовать Pollinations. */
     public static void saveGeminiKey(Context ctx, String key) {
         ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
            .edit().putString(KEY_GEMINI, key.trim()).apply();
@@ -80,27 +89,101 @@ public class AiClient {
                   .getString(KEY_GEMINI, "").trim();
     }
 
-    public boolean usingGemini() {
-        return geminiKey != null && !geminiKey.isEmpty();
+    public static void saveGroqKey(Context ctx, String key) {
+        ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+           .edit().putString(KEY_GROQ, key.trim()).apply();
     }
+
+    public static String getGroqKey(Context ctx) {
+        return ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                  .getString(KEY_GROQ, "").trim();
+    }
+
+    public boolean usingGroq()   { return groqKey   != null && !groqKey.isEmpty(); }
+    public boolean usingGemini() { return geminiKey != null && !geminiKey.isEmpty(); }
 
     // ─── Public ask ───────────────────────────────────────────────────────────
 
     public void ask(String screenText, Callback callback) {
-        if (!enabled) {
-            // AI отключён — молча игнорируем
-            return;
-        }
+        if (!enabled) return;
         executor.execute(() -> {
             try {
-                String answer = usingGemini()
-                        ? callGemini(screenText)
-                        : callPollinations(screenText);
-                mainHandler.post(() -> callback.onResult(answer));
+                if (usingGroq()) {
+                    callGroqStream(screenText, callback);
+                } else if (usingGemini()) {
+                    String answer = callGemini(screenText);
+                    mainHandler.post(() -> callback.onResult(answer));
+                } else {
+                    String answer = callPollinations(screenText);
+                    mainHandler.post(() -> callback.onResult(answer));
+                }
             } catch (Exception e) {
                 mainHandler.post(() -> callback.onError(e.getMessage()));
             }
         });
+    }
+
+    // ─── Groq streaming ───────────────────────────────────────────────────────
+
+    private void callGroqStream(String screenText, Callback callback) throws Exception {
+        URL url = new URL(GROQ_URL);
+        HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+        conn.setRequestMethod("POST");
+        conn.setRequestProperty("Content-Type",  "application/json; charset=UTF-8");
+        conn.setRequestProperty("Authorization", "Bearer " + groqKey);
+        conn.setDoOutput(true);
+        conn.setConnectTimeout(10_000);
+        conn.setReadTimeout(30_000);
+
+        JSONObject body = new JSONObject()
+                .put("model", GROQ_MODEL)
+                .put("stream", true)
+                .put("max_tokens", 256)
+                .put("temperature", 0.1)
+                .put("messages", new JSONArray()
+                        .put(new JSONObject().put("role", "system").put("content", SYSTEM_PROMPT))
+                        .put(new JSONObject().put("role", "user")
+                                .put("content", "Текст с экрана:\n\n" + screenText)));
+
+        writeBody(conn, body.toString());
+
+        int code = conn.getResponseCode();
+        if (code != 200) {
+            String err = readFully(new BufferedReader(new InputStreamReader(
+                    conn.getErrorStream(), StandardCharsets.UTF_8)));
+            conn.disconnect();
+            throw new Exception("Groq " + code + ": " + err);
+        }
+
+        // Читаем SSE-поток
+        StringBuilder accumulated = new StringBuilder();
+        try (BufferedReader reader = new BufferedReader(
+                new InputStreamReader(conn.getInputStream(), StandardCharsets.UTF_8))) {
+            String line;
+            while ((line = reader.readLine()) != null) {
+                if (!line.startsWith("data: ")) continue;
+                String data = line.substring(6).trim();
+                if ("[DONE]".equals(data)) break;
+
+                try {
+                    JSONObject chunk = new JSONObject(data);
+                    JSONArray choices = chunk.optJSONArray("choices");
+                    if (choices == null || choices.length() == 0) continue;
+                    JSONObject delta = choices.getJSONObject(0).optJSONObject("delta");
+                    if (delta == null) continue;
+                    String token = delta.optString("content", "");
+                    if (token.isEmpty()) continue;
+
+                    accumulated.append(token);
+                    final String partial = accumulated.toString();
+                    mainHandler.post(() -> callback.onPartial("🤖 " + partial));
+                } catch (Exception ignored) {}
+            }
+        }
+        conn.disconnect();
+
+        final String result = accumulated.toString().trim();
+        mainHandler.post(() -> callback.onResult(result));
     }
 
     // ─── Gemini API ───────────────────────────────────────────────────────────
@@ -114,12 +197,12 @@ public class AiClient {
         conn.setConnectTimeout(10_000);
         conn.setReadTimeout(20_000);
 
-        JSONObject sysPart = new JSONObject().put("text", SYSTEM_PROMPT);
+        JSONObject sysPart    = new JSONObject().put("text", SYSTEM_PROMPT);
         JSONObject sysContent = new JSONObject()
                 .put("role", "user")
                 .put("parts", new JSONArray().put(sysPart));
 
-        JSONObject userPart = new JSONObject().put("text", "Текст с экрана:\n\n" + screenText);
+        JSONObject userPart    = new JSONObject().put("text", "Текст с экрана:\n\n" + screenText);
         JSONObject userContent = new JSONObject()
                 .put("role", "user")
                 .put("parts", new JSONArray().put(userPart));
@@ -133,7 +216,9 @@ public class AiClient {
         writeBody(conn, body.toString());
 
         int code = conn.getResponseCode();
-        String resp = readResponse(conn, code);
+        String resp = readFully(new BufferedReader(new InputStreamReader(
+                code == 200 ? conn.getInputStream() : conn.getErrorStream(),
+                StandardCharsets.UTF_8)));
         conn.disconnect();
 
         if (code != 200) throw new Exception("Gemini " + code + ": " + resp);
@@ -170,22 +255,20 @@ public class AiClient {
         writeBody(conn, body.toString());
 
         int code = conn.getResponseCode();
-        String resp = readResponse(conn, code);
+        String resp = readFully(new BufferedReader(new InputStreamReader(
+                code == 200 ? conn.getInputStream() : conn.getErrorStream(),
+                StandardCharsets.UTF_8)));
         conn.disconnect();
 
         if (code != 200) throw new Exception("Pollinations " + code + ": " + resp);
 
-        // Pollinations иногда возвращает plain text, иногда JSON — обрабатываем оба случая
         resp = resp.trim();
         if (resp.startsWith("{")) {
-            // JSON-ответ (OpenAI-совместимый формат)
             return new JSONObject(resp)
                     .getJSONArray("choices").getJSONObject(0)
                     .getJSONObject("message").getString("content").trim();
-        } else {
-            // Plain text — просто возвращаем как есть
-            return resp;
         }
+        return resp;
     }
 
     // ─── Helpers ──────────────────────────────────────────────────────────────
@@ -195,14 +278,11 @@ public class AiClient {
         try (OutputStream os = conn.getOutputStream()) { os.write(bytes); }
     }
 
-    private String readResponse(HttpURLConnection conn, int code) throws Exception {
-        BufferedReader r = new BufferedReader(new InputStreamReader(
-                code == 200 ? conn.getInputStream() : conn.getErrorStream(),
-                StandardCharsets.UTF_8));
+    private String readFully(BufferedReader reader) throws Exception {
         StringBuilder sb = new StringBuilder();
         String line;
-        while ((line = r.readLine()) != null) sb.append(line).append('\n');
-        r.close();
+        while ((line = reader.readLine()) != null) sb.append(line).append('\n');
+        reader.close();
         return sb.toString().trim();
     }
 }
