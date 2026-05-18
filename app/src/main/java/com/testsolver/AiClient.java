@@ -34,8 +34,9 @@ public class AiClient {
     public static final String KEY_GEMINI  = "gemini_api_key";
 
     // Endpoints
+    // gemini-1.5-flash — гарантированный бесплатный tier (15 RPM, 1500 RPD) во всех регионах
     private static final String GEMINI_URL =
-            "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=";
+            "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=";
     private static final String POLLINATIONS_URL =
             "https://text.pollinations.ai/";
 
@@ -157,9 +158,17 @@ public class AiClient {
 
         if (code != 200) throw new Exception("Pollinations " + code + ": " + resp);
 
-        return new JSONObject(resp)
-                .getJSONArray("choices").getJSONObject(0)
-                .getJSONObject("message").getString("content").trim();
+        // Pollinations иногда возвращает plain text, иногда JSON — обрабатываем оба случая
+        resp = resp.trim();
+        if (resp.startsWith("{")) {
+            // JSON-ответ (OpenAI-совместимый формат)
+            return new JSONObject(resp)
+                    .getJSONArray("choices").getJSONObject(0)
+                    .getJSONObject("message").getString("content").trim();
+        } else {
+            // Plain text — просто возвращаем как есть
+            return resp;
+        }
     }
 
     // ─── Helpers ──────────────────────────────────────────────────────────────
