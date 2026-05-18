@@ -234,7 +234,7 @@ public class AiClient {
         conn.setConnectTimeout(10_000);
         conn.setReadTimeout(20_000);
 
-        JSONObject sysPart    = new JSONObject().put("text", SYSTEM_PROMPT);
+        JSONObject sysPart    = new JSONObject().put("text", SYSTEM_PROMPT_BASE);
         JSONObject sysContent = new JSONObject()
                 .put("role", "user")
                 .put("parts", new JSONArray().put(sysPart));
