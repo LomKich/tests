@@ -14,6 +14,7 @@ import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
+import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -49,7 +50,7 @@ public class AiClient {
             "https://text.pollinations.ai/";
     private static final String GROQ_MODEL = "llama-3.1-8b-instant";
 
-    private static final String SYSTEM_PROMPT =
+    private static final String SYSTEM_PROMPT_BASE =
             "Ты решаешь тест. Текст с экрана содержит вопрос и варианты ответа. " +
             "Выведи ТОЛЬКО правильный ответ (или несколько — каждый с новой строки). " +
             "Никаких пояснений, никаких вводных слов, никаких знаков препинания в конце. " +
@@ -116,23 +117,47 @@ public class AiClient {
 
     // ─── Public ask ───────────────────────────────────────────────────────────
 
-    public void ask(String screenText, Callback callback) {
+    public void ask(String screenText, List<AnswerDatabase.Answer> localCandidates, Callback callback) {
         if (!enabled) return;
+        String prompt = buildPrompt(screenText, localCandidates);
         executor.execute(() -> {
             try {
                 if (usingGroq()) {
-                    callGroqStream(screenText, callback);
+                    callGroqStream(prompt, callback);
                 } else if (usingGemini()) {
-                    String answer = callGemini(screenText);
+                    String answer = callGemini(prompt);
                     mainHandler.post(() -> callback.onResult(answer));
                 } else {
-                    String answer = callPollinations(screenText);
+                    String answer = callPollinations(prompt);
                     mainHandler.post(() -> callback.onResult(answer));
                 }
             } catch (Exception e) {
                 mainHandler.post(() -> callback.onError(e.getMessage()));
             }
         });
+    }
+
+    /** Формирует промпт: если есть кандидаты из базы — просим AI сначала проверить их. */
+    private String buildPrompt(String screenText, List<AnswerDatabase.Answer> candidates) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("Текст с экрана:\n\n").append(screenText);
+
+        if (candidates != null && !candidates.isEmpty()) {
+            sb.append("\n\n---\nЛОКАЛЬНАЯ БАЗА (возможные совпадения, топ по сходству):\n");
+            for (int i = 0; i < candidates.size(); i++) {
+                AnswerDatabase.Answer a = candidates.get(i);
+                String ans = (a.answerList != null && !a.answerList.isEmpty())
+                        ? String.join(" / ", a.answerList)
+                        : a.answerText;
+                sb.append(i + 1).append(". Q: \"").append(a.question)
+                  .append("\" → A: \"").append(ans).append("\"\n");
+            }
+            sb.append("\nЕсли один из вариантов выше точно соответствует вопросу на экране — ")
+              .append("верни его ответ ДОСЛОВНО (из поля A:). ")
+              .append("Иначе — дай свой краткий ответ.");
+        }
+
+        return sb.toString();
     }
 
     // ─── Groq streaming ───────────────────────────────────────────────────────
@@ -153,7 +178,7 @@ public class AiClient {
                 .put("max_tokens", 256)
                 .put("temperature", 0.1)
                 .put("messages", new JSONArray()
-                        .put(new JSONObject().put("role", "system").put("content", SYSTEM_PROMPT))
+                        .put(new JSONObject().put("role", "system").put("content", SYSTEM_PROMPT_BASE))
                         .put(new JSONObject().put("role", "user")
                                 .put("content", "Текст с экрана:\n\n" + screenText)));
 
@@ -214,7 +239,7 @@ public class AiClient {
                 .put("role", "user")
                 .put("parts", new JSONArray().put(sysPart));
 
-        JSONObject userPart    = new JSONObject().put("text", "Текст с экрана:\n\n" + screenText);
+        JSONObject userPart    = new JSONObject().put("text", screenText);
         JSONObject userContent = new JSONObject()
                 .put("role", "user")
                 .put("parts", new JSONArray().put(userPart));
@@ -260,7 +285,7 @@ public class AiClient {
                 .put("private", true)
                 .put("seed", 42)
                 .put("messages", new JSONArray()
-                        .put(new JSONObject().put("role", "system").put("content", SYSTEM_PROMPT))
+                        .put(new JSONObject().put("role", "system").put("content", SYSTEM_PROMPT_BASE))
                         .put(new JSONObject().put("role", "user")
                                 .put("content", "Текст с экрана:\n\n" + screenText)));
 

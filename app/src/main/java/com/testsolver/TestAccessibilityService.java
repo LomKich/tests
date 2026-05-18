@@ -20,6 +20,7 @@ import android.view.WindowManager;
 import android.view.accessibility.AccessibilityEvent;
 import android.view.accessibility.AccessibilityNodeInfo;
 import android.widget.TextView;
+import java.util.List;
 
 public class TestAccessibilityService extends AccessibilityService {
 
@@ -198,7 +199,8 @@ public class TestAccessibilityService extends AccessibilityService {
         showOverlay("🤖 AI думает...");
         cancelHide();
 
-        aiClient.ask(screenText, new AiClient.Callback() {
+        List<AnswerDatabase.Answer> candidates = db.getTopCandidates(screenText, 5);
+        aiClient.ask(screenText, candidates, new AiClient.Callback() {
             @Override
             public void onPartial(String partial) {
                 if (!screenText.equals(pendingAiText)) return;

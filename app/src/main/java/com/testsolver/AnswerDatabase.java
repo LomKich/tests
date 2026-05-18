@@ -128,6 +128,25 @@ public class AnswerDatabase {
         return (bestScore >= 0.30) ? best : null;
     }
 
+    /**
+     * Возвращает топ-N кандидатов по Jaccard-сходству (без порога).
+     * Используется для передачи в AI как контекст локальной базы.
+     */
+    public List<Answer> getTopCandidates(String screenText, int n) {
+        if (screenText == null || screenText.isEmpty() || all.isEmpty()) return Collections.emptyList();
+
+        List<String> screenWords = tokenize(screenText);
+        Set<String> screenSet = new HashSet<>(screenWords);
+
+        // Сортируем все записи по убыванию Jaccard
+        List<Answer> sorted = new ArrayList<>(all);
+        sorted.sort((a, b) -> Double.compare(
+                jaccard(b.questionWords, screenSet),
+                jaccard(a.questionWords, screenSet)));
+
+        return sorted.subList(0, Math.min(n, sorted.size()));
+    }
+
     private double jaccard(List<String> qWords, Set<String> screen) {
         if (qWords.isEmpty()) return 0;
         int inter = 0;

@@ -107,7 +107,7 @@ public class GeminiSettingsActivity extends AppCompatActivity {
                 return;
             }
             tvStatus.append("\n\n⏳ Тестирую...");
-            new AiClient(this).ask("Скажи одно слово: Привет", new AiClient.Callback() {
+            new AiClient(this).ask("Скажи одно слово: Привет", null, new AiClient.Callback() {
                 @Override public void onPartial(String p) {
                     tvStatus.setText(getStatusText() + "\n\n⚡ " + p);
                 }
