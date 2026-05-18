@@ -98,7 +98,7 @@ public class TestAccessibilityService extends AccessibilityService {
             db = new AnswerDatabase();
             db.load(this);
 
-            aiClient = new AiClient();
+            aiClient = new AiClient(this);
 
             // Foreground-уведомление — критично для MIUI, чтобы сервис не убивался
             startForegroundCompat();
@@ -219,8 +219,8 @@ public class TestAccessibilityService extends AccessibilityService {
         });
     }
 
-    public void reloadAi() {
-        aiClient = new AiClient();
+    public void reloadAi(Context ctx) {
+        aiClient = new AiClient(ctx);
     }
 
     // ─── Hide debounce ────────────────────────────────────────────────────────

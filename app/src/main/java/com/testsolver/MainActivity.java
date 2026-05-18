@@ -78,6 +78,10 @@ public class MainActivity extends AppCompatActivity {
         // 5. Добавить вопрос
         findViewById(R.id.btn_add_question).setOnClickListener(v ->
                 startActivity(new Intent(this, AddQuestionActivity.class)));
+
+        // 6. AI настройки (Gemini / Pollinations)
+        findViewById(R.id.btn_ai_settings).setOnClickListener(v ->
+                startActivity(new Intent(this, GeminiSettingsActivity.class)));
     }
 
     @Override

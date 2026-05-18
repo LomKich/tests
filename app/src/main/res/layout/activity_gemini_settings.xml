@@ -1,0 +1,130 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:padding="20dp"
+    android:background="#0d1117">
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="✨ AI настройки"
+        android:textSize="22sp"
+        android:textColor="#58a6ff"
+        android:textStyle="bold"
+        android:layout_marginBottom="8dp"/>
+
+    <!-- Текущий режим -->
+    <TextView
+        android:id="@+id/tv_gemini_status"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Загрузка..."
+        android:textColor="#c9d1d9"
+        android:textSize="14sp"
+        android:background="#161b22"
+        android:padding="14dp"
+        android:lineSpacingExtra="4dp"
+        android:layout_marginBottom="20dp"/>
+
+    <!-- Блок Pollinations -->
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="🌐 Pollinations.ai — без ключа"
+        android:textColor="#58a6ff"
+        android:textSize="13sp"
+        android:textStyle="bold"
+        android:layout_marginBottom="4dp"/>
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Работает сразу, без регистрации. Чуть медленнее (~4–6 сек)."
+        android:textColor="#6e7681"
+        android:textSize="12sp"
+        android:layout_marginBottom="16dp"/>
+
+    <!-- Разделитель -->
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="1dp"
+        android:background="#21262d"
+        android:layout_marginBottom="16dp"/>
+
+    <!-- Блок Gemini -->
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="✨ Gemini API — с ключом (быстрее)"
+        android:textColor="#58a6ff"
+        android:textSize="13sp"
+        android:textStyle="bold"
+        android:layout_marginBottom="4dp"/>
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Бесплатный tier: 1500 запросов/день. Нужен Google-аккаунт (уже есть на телефоне). Быстрее (~1–2 сек)."
+        android:textColor="#6e7681"
+        android:textSize="12sp"
+        android:layout_marginBottom="12dp"/>
+
+    <!-- Кнопка получить ключ -->
+    <Button
+        android:id="@+id/btn_get_key"
+        android:layout_width="match_parent"
+        android:layout_height="44dp"
+        android:text="🔑 Получить бесплатный ключ (Google)"
+        android:textSize="13sp"
+        android:backgroundTint="#238636"
+        android:layout_marginBottom="10dp"/>
+
+    <!-- Поле ввода -->
+    <EditText
+        android:id="@+id/et_gemini_key"
+        android:layout_width="match_parent"
+        android:layout_height="48dp"
+        android:hint="Вставьте ключ сюда (AIza...)"
+        android:textColorHint="#6e7681"
+        android:textColor="#c9d1d9"
+        android:background="#161b22"
+        android:padding="12dp"
+        android:inputType="textVisiblePassword"
+        android:layout_marginBottom="8dp"/>
+
+    <Button
+        android:id="@+id/btn_save_key"
+        android:layout_width="match_parent"
+        android:layout_height="44dp"
+        android:text="💾 Сохранить и использовать Gemini"
+        android:textSize="13sp"
+        android:backgroundTint="#1f6feb"
+        android:layout_marginBottom="8dp"/>
+
+    <Button
+        android:id="@+id/btn_clear_key"
+        android:layout_width="match_parent"
+        android:layout_height="44dp"
+        android:text="🗑 Удалить ключ → вернуться на Pollinations"
+        android:textSize="12sp"
+        android:backgroundTint="#6e3030"
+        android:layout_marginBottom="16dp"/>
+
+    <!-- Разделитель -->
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="1dp"
+        android:background="#21262d"
+        android:layout_marginBottom="12dp"/>
+
+    <Button
+        android:id="@+id/btn_test_key"
+        android:layout_width="match_parent"
+        android:layout_height="44dp"
+        android:text="🧪 Проверить текущий AI"
+        android:textSize="13sp"
+        android:backgroundTint="#6e4a9e"/>
+
+</LinearLayout>

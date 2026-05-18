@@ -1,5 +1,7 @@
 package com.testsolver;
 
+import android.content.Context;
+import android.content.SharedPreferences;
 import android.os.Handler;
 import android.os.Looper;
 
@@ -16,9 +18,9 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 /**
- * AI-клиент через Pollinations.ai
- * ✅ Бесплатно, без регистрации, без API-ключей
- * Документация: https://pollinations.ai
+ * AI-клиент с двумя режимами:
+ *   1. Gemini API (если задан ключ) — быстро, надёжно, бесплатный tier
+ *   2. Pollinations.ai (без ключа)  — вообще без регистрации, чуть медленнее
  */
 public class AiClient {
 
@@ -27,24 +29,55 @@ public class AiClient {
         void onError(String error);
     }
 
-    // POST https://text.pollinations.ai/
-    private static final String API_URL = "https://text.pollinations.ai/";
+    // SharedPreferences
+    public static final String PREFS       = "ai_prefs";
+    public static final String KEY_GEMINI  = "gemini_api_key";
+
+    // Endpoints
+    private static final String GEMINI_URL =
+            "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=";
+    private static final String POLLINATIONS_URL =
+            "https://text.pollinations.ai/";
 
     private static final String SYSTEM_PROMPT =
-            "Ты помощник для решения тестов и учебных заданий. " +
-            "Тебе дают текст с экрана (вопрос теста с вариантами ответов). " +
-            "Дай КРАТКИЙ ответ — только сами правильные ответы, без пояснений. " +
-            "Если несколько вариантов — каждый с новой строки. " +
+            "Ты помощник для решения тестов. Тебе дают текст с экрана (вопрос + варианты). " +
+            "Дай КРАТКИЙ ответ — только правильные варианты, без пояснений. " +
+            "Несколько вариантов — каждый с новой строки. " +
             "Если вопрос не ясен — ответь: Вопрос не определён.";
 
-    private final ExecutorService executor = Executors.newSingleThreadExecutor();
-    private final Handler mainHandler   = new Handler(Looper.getMainLooper());
+    private final ExecutorService executor   = Executors.newSingleThreadExecutor();
+    private final Handler         mainHandler = new Handler(Looper.getMainLooper());
 
-    /** Отправляет текст с экрана в AI и возвращает ответ через callback на главном потоке. */
+    private final String geminiKey; // null или пустой → Pollinations
+
+    public AiClient(Context ctx) {
+        SharedPreferences prefs = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
+        geminiKey = prefs.getString(KEY_GEMINI, "").trim();
+    }
+
+    /** Сохраняет ключ Gemini. Пустая строка = отключить Gemini, использовать Pollinations. */
+    public static void saveGeminiKey(Context ctx, String key) {
+        ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+           .edit().putString(KEY_GEMINI, key.trim()).apply();
+    }
+
+    public static String getGeminiKey(Context ctx) {
+        return ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                  .getString(KEY_GEMINI, "").trim();
+    }
+
+    public boolean usingGemini() {
+        return geminiKey != null && !geminiKey.isEmpty();
+    }
+
+    // ─── Public ask ───────────────────────────────────────────────────────────
+
     public void ask(String screenText, Callback callback) {
         executor.execute(() -> {
             try {
-                String answer = callPollinations(screenText);
+                String answer = usingGemini()
+                        ? callGemini(screenText)
+                        : callPollinations(screenText);
                 mainHandler.post(() -> callback.onResult(answer));
             } catch (Exception e) {
                 mainHandler.post(() -> callback.onError(e.getMessage()));
@@ -52,8 +85,54 @@ public class AiClient {
         });
     }
 
+    // ─── Gemini API ───────────────────────────────────────────────────────────
+
+    private String callGemini(String screenText) throws Exception {
+        URL url = new URL(GEMINI_URL + geminiKey);
+        HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+        conn.setRequestMethod("POST");
+        conn.setRequestProperty("Content-Type", "application/json; charset=UTF-8");
+        conn.setDoOutput(true);
+        conn.setConnectTimeout(10_000);
+        conn.setReadTimeout(20_000);
+
+        JSONObject sysPart = new JSONObject().put("text", SYSTEM_PROMPT);
+        JSONObject sysContent = new JSONObject()
+                .put("role", "user")
+                .put("parts", new JSONArray().put(sysPart));
+
+        JSONObject userPart = new JSONObject().put("text", "Текст с экрана:\n\n" + screenText);
+        JSONObject userContent = new JSONObject()
+                .put("role", "user")
+                .put("parts", new JSONArray().put(userPart));
+
+        JSONObject body = new JSONObject()
+                .put("contents", new JSONArray().put(sysContent).put(userContent))
+                .put("generationConfig", new JSONObject()
+                        .put("maxOutputTokens", 256)
+                        .put("temperature", 0.1));
+
+        writeBody(conn, body.toString());
+
+        int code = conn.getResponseCode();
+        String resp = readResponse(conn, code);
+        conn.disconnect();
+
+        if (code != 200) throw new Exception("Gemini " + code + ": " + resp);
+
+        JSONObject json = new JSONObject(resp);
+        JSONArray parts = json.getJSONArray("candidates")
+                .getJSONObject(0).getJSONObject("content").getJSONArray("parts");
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < parts.length(); i++)
+            sb.append(parts.getJSONObject(i).optString("text", ""));
+        return sb.toString().trim();
+    }
+
+    // ─── Pollinations.ai (без ключа) ─────────────────────────────────────────
+
     private String callPollinations(String screenText) throws Exception {
-        URL url = new URL(API_URL);
+        URL url = new URL(POLLINATIONS_URL);
         HttpURLConnection conn = (HttpURLConnection) url.openConnection();
         conn.setRequestMethod("POST");
         conn.setRequestProperty("Content-Type", "application/json; charset=UTF-8");
@@ -61,50 +140,43 @@ public class AiClient {
         conn.setConnectTimeout(12_000);
         conn.setReadTimeout(25_000);
 
-        // Формируем тело запроса в формате OpenAI-compatible (Pollinations поддерживает)
-        JSONObject sysMsg = new JSONObject();
-        sysMsg.put("role", "system");
-        sysMsg.put("content", SYSTEM_PROMPT);
+        JSONObject body = new JSONObject()
+                .put("model", "openai")
+                .put("private", true)
+                .put("seed", 42)
+                .put("messages", new JSONArray()
+                        .put(new JSONObject().put("role", "system").put("content", SYSTEM_PROMPT))
+                        .put(new JSONObject().put("role", "user")
+                                .put("content", "Текст с экрана:\n\n" + screenText)));
 
-        JSONObject userMsg = new JSONObject();
-        userMsg.put("role", "user");
-        userMsg.put("content", "Текст с экрана:\n\n" + screenText);
-
-        JSONObject body = new JSONObject();
-        body.put("model", "openai");          // модель GPT-4o через Pollinations
-        body.put("messages", new JSONArray().put(sysMsg).put(userMsg));
-        body.put("seed", 42);                 // детерминированные ответы
-        body.put("private", true);            // не публиковать в ленте
-
-        byte[] bytes = body.toString().getBytes(StandardCharsets.UTF_8);
-        try (OutputStream os = conn.getOutputStream()) {
-            os.write(bytes);
-        }
+        writeBody(conn, body.toString());
 
         int code = conn.getResponseCode();
-        BufferedReader reader = new BufferedReader(new InputStreamReader(
+        String resp = readResponse(conn, code);
+        conn.disconnect();
+
+        if (code != 200) throw new Exception("Pollinations " + code + ": " + resp);
+
+        return new JSONObject(resp)
+                .getJSONArray("choices").getJSONObject(0)
+                .getJSONObject("message").getString("content").trim();
+    }
+
+    // ─── Helpers ──────────────────────────────────────────────────────────────
+
+    private void writeBody(HttpURLConnection conn, String json) throws Exception {
+        byte[] bytes = json.getBytes(StandardCharsets.UTF_8);
+        try (OutputStream os = conn.getOutputStream()) { os.write(bytes); }
+    }
+
+    private String readResponse(HttpURLConnection conn, int code) throws Exception {
+        BufferedReader r = new BufferedReader(new InputStreamReader(
                 code == 200 ? conn.getInputStream() : conn.getErrorStream(),
                 StandardCharsets.UTF_8));
         StringBuilder sb = new StringBuilder();
         String line;
-        while ((line = reader.readLine()) != null) sb.append(line).append("\n");
-        reader.close();
-        conn.disconnect();
-
-        String raw = sb.toString().trim();
-
-        if (code != 200) {
-            throw new Exception("Ошибка сервера " + code + ": " + raw);
-        }
-
-        // Парсим ответ (OpenAI-compatible формат)
-        JSONObject json   = new JSONObject(raw);
-        JSONArray choices = json.getJSONArray("choices");
-        if (choices.length() == 0) return "AI не дал ответа";
-
-        return choices.getJSONObject(0)
-                .getJSONObject("message")
-                .getString("content")
-                .trim();
+        while ((line = r.readLine()) != null) sb.append(line).append('\n');
+        r.close();
+        return sb.toString().trim();
     }
 }

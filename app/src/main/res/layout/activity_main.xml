@@ -91,6 +91,15 @@
         android:text="➕ Добавить вопрос со скрина"
         android:textSize="13sp"
         android:backgroundTint="#b45309"
+        android:layout_marginBottom="8dp"/>
+
+    <Button
+        android:id="@+id/btn_ai_settings"
+        android:layout_width="match_parent"
+        android:layout_height="48dp"
+        android:text="✨ AI настройки (Gemini / Pollinations)"
+        android:textSize="13sp"
+        android:backgroundTint="#6e4a9e"
         android:layout_marginBottom="20dp"/>
 
     <TextView
