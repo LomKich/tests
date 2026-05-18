@@ -10,7 +10,6 @@ import android.content.Intent;
 import android.content.IntentFilter;
 import android.graphics.PixelFormat;
 import android.os.Build;
-import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.view.Gravity;
@@ -178,15 +177,12 @@ public class TestAccessibilityService extends AccessibilityService {
         lastQuestion = ans.question;
 
         showOverlay(buildDisplay(ans));
-
-        if ("text".equals(ans.type) && ans.answerText != null && !ans.answerText.isEmpty()) {
-            autoFillText(ans.answerText);
-        }
     }
 
     // ─── AI fallback ──────────────────────────────────────────────────────────
 
     private void askAi(String screenText) {
+        if (!AiClient.isEnabled(this)) { scheduleHide(); return; }
         if (screenText.equals(pendingAiText)) return;
         if (screenText.length() < 20) { scheduleHide(); return; }
 
@@ -274,37 +270,6 @@ public class TestAccessibilityService extends AccessibilityService {
             }
         }
         return sb.toString();
-    }
-
-    // ─── Auto-fill ────────────────────────────────────────────────────────────
-
-    private void autoFillText(String answer) {
-        mainHandler.postDelayed(() -> {
-            AccessibilityNodeInfo root = getRootInActiveWindow();
-            if (root == null) return;
-            fillFirstEditText(root, answer);
-            root.recycle();
-        }, 400);
-    }
-
-    private boolean fillFirstEditText(AccessibilityNodeInfo node, String text) {
-        if (node == null) return false;
-        if (node.isEditable()) {
-            Bundle args = new Bundle();
-            args.putCharSequence(
-                    AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, text);
-            boolean ok = node.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args);
-            if (ok) return true;
-        }
-        for (int i = 0; i < node.getChildCount(); i++) {
-            AccessibilityNodeInfo child = node.getChild(i);
-            if (child != null) {
-                boolean filled = fillFirstEditText(child, text);
-                child.recycle();
-                if (filled) return true;
-            }
-        }
-        return false;
     }
 
     // ─── Overlay ──────────────────────────────────────────────────────────────
