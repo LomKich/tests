@@ -16,6 +16,11 @@ import java.util.Locale;
 
 public class TestAccessibilityService extends AccessibilityService {
 
+    public static final String ACTION_TOGGLE_PAUSE = "com.testsolver.TOGGLE_PAUSE";
+
+    public static TestAccessibilityService instance = null;
+    public static boolean isPaused = false;
+
     private WindowManager windowManager;
     private View overlayView;
 
@@ -27,7 +32,15 @@ public class TestAccessibilityService extends AccessibilityService {
     @Override
     public void onServiceConnected() {
         super.onServiceConnected();
+        instance = this;
         windowManager = (WindowManager) getSystemService(WINDOW_SERVICE);
+    }
+
+    @Override
+    public boolean onUnbind(android.content.Intent intent) {
+        instance = null;
+        isPaused = false;
+        return super.onUnbind(intent);
     }
 
     @Override
