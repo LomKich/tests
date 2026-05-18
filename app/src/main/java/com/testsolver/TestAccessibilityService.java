@@ -1,18 +1,22 @@
 package com.testsolver;
 
 import android.accessibilityservice.AccessibilityService;
+import android.content.BroadcastReceiver;
+import android.content.Context;
+import android.content.Intent;
+import android.content.IntentFilter;
 import android.graphics.PixelFormat;
+import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.view.Gravity;
 import android.view.LayoutInflater;
+import android.view.MotionEvent;
 import android.view.View;
 import android.view.WindowManager;
 import android.view.accessibility.AccessibilityEvent;
-import android.widget.EditText;
+import android.view.accessibility.AccessibilityNodeInfo;
 import android.widget.TextView;
-
-import java.util.Locale;
 
 public class TestAccessibilityService extends AccessibilityService {
 
@@ -23,60 +27,234 @@ public class TestAccessibilityService extends AccessibilityService {
 
     private WindowManager windowManager;
     private View overlayView;
-
-    private EditText inputField;
-    private TextView resultView;
-
+    private TextView tvAnswer;
+    private TextView tvPauseLabel;
     private boolean isOverlayShown = false;
+
+    private AnswerDatabase db;
+    private String lastQuestion = "";
+
+    private int overlayX = 0, overlayY = 120;
+
+    private BroadcastReceiver pauseReceiver;
+
+    // ─── Lifecycle ────────────────────────────────────────────────────────────
 
     @Override
     public void onServiceConnected() {
         super.onServiceConnected();
         instance = this;
         windowManager = (WindowManager) getSystemService(WINDOW_SERVICE);
+
+        db = new AnswerDatabase();
+        db.load(this);
+
+        pauseReceiver = new BroadcastReceiver() {
+            @Override
+            public void onReceive(Context ctx, Intent intent) {
+                isPaused = !isPaused;
+                updatePauseLabel();
+                if (isPaused) hideOverlay();
+            }
+        };
+        registerReceiver(pauseReceiver, new IntentFilter(ACTION_TOGGLE_PAUSE));
     }
 
     @Override
-    public boolean onUnbind(android.content.Intent intent) {
+    public boolean onUnbind(Intent intent) {
         instance = null;
         isPaused = false;
+        hideOverlay();
+        try { unregisterReceiver(pauseReceiver); } catch (Exception ignored) {}
         return super.onUnbind(intent);
     }
 
     @Override
-    public void onAccessibilityEvent(AccessibilityEvent event) {}
-
-    @Override
     public void onInterrupt() {}
 
-    public void showOverlay() {
-        if (isOverlayShown) return;
+    // ─── Accessibility event ──────────────────────────────────────────────────
 
-        new Handler(Looper.getMainLooper()).post(() -> {
-            try {
-                overlayView = LayoutInflater.from(this).inflate(R.layout.overlay, null);
+    @Override
+    public void onAccessibilityEvent(AccessibilityEvent event) {
+        if (isPaused) return;
 
-                inputField = overlayView.findViewById(R.id.inputField);
-                resultView = overlayView.findViewById(R.id.resultView);
+        int type = event.getEventType();
+        if (type != AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED &&
+            type != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED &&
+            type != AccessibilityEvent.TYPE_VIEW_FOCUSED) return;
 
-                setupInputLogic();
+        AccessibilityNodeInfo root = getRootInActiveWindow();
+        if (root == null) return;
 
-                WindowManager.LayoutParams params = new WindowManager.LayoutParams(
-                        WindowManager.LayoutParams.MATCH_PARENT,
-                        WindowManager.LayoutParams.WRAP_CONTENT,
-                        WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
-                        WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
-                        PixelFormat.TRANSLUCENT
-                );
+        StringBuilder sb = new StringBuilder();
+        collectText(root, sb);
+        root.recycle();
 
-                params.gravity = Gravity.TOP;
+        String screenText = sb.toString().trim();
+        if (screenText.isEmpty()) return;
 
-                windowManager.addView(overlayView, params);
-                isOverlayShown = true;
+        AnswerDatabase.Answer ans = db.findAnswer(screenText);
+        if (ans == null) {
+            hideOverlay();
+            lastQuestion = "";
+            return;
+        }
 
-            } catch (Exception e) {
-                e.printStackTrace();
+        if (ans.question.equals(lastQuestion)) return;
+        lastQuestion = ans.question;
+
+        showOverlay(buildDisplay(ans));
+
+        if ("text".equals(ans.type) && ans.answerText != null && !ans.answerText.isEmpty()) {
+            autoFillText(ans.answerText);
+        }
+    }
+
+    // ─── Text collection ──────────────────────────────────────────────────────
+
+    private void collectText(AccessibilityNodeInfo node, StringBuilder sb) {
+        if (node == null) return;
+        CharSequence text = node.getText();
+        if (text != null && text.length() > 0) sb.append(text).append(" ");
+        for (int i = 0; i < node.getChildCount(); i++) {
+            AccessibilityNodeInfo child = node.getChild(i);
+            if (child != null) {
+                collectText(child, sb);
+                child.recycle();
             }
+        }
+    }
+
+    // ─── Answer display ───────────────────────────────────────────────────────
+
+    private String buildDisplay(AnswerDatabase.Answer ans) {
+        StringBuilder sb = new StringBuilder();
+        String prefix;
+        if ("radio".equals(ans.type))         prefix = "○ ";
+        else if ("checkbox".equals(ans.type)) prefix = "☑ ";
+        else if ("match".equals(ans.type))    prefix = "↔ ";
+        else                                   prefix = "✎ ";
+
+        sb.append(prefix);
+
+        if (ans.answerList != null && !ans.answerList.isEmpty()) {
+            sb.append(ans.answerList.get(0));
+            for (int i = 1; i < ans.answerList.size(); i++) {
+                sb.append("\n").append(prefix).append(ans.answerList.get(i));
+            }
+        } else if (ans.answerText != null) {
+            if ("match".equals(ans.type)) {
+                sb.append(ans.answerText.replace("\n", "\n↔ "));
+            } else {
+                sb.append(ans.answerText);
+            }
+        }
+        return sb.toString();
+    }
+
+    // ─── Auto-fill ────────────────────────────────────────────────────────────
+
+    private void autoFillText(String answer) {
+        new Handler(Looper.getMainLooper()).postDelayed(() -> {
+            AccessibilityNodeInfo root = getRootInActiveWindow();
+            if (root == null) return;
+            fillFirstEditText(root, answer);
+            root.recycle();
+        }, 400);
+    }
+
+    private boolean fillFirstEditText(AccessibilityNodeInfo node, String text) {
+        if (node == null) return false;
+        if (node.isEditable()) {
+            Bundle args = new Bundle();
+            args.putCharSequence(
+                    AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, text);
+            boolean ok = node.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args);
+            if (ok) return true;
+        }
+        for (int i = 0; i < node.getChildCount(); i++) {
+            AccessibilityNodeInfo child = node.getChild(i);
+            if (child != null) {
+                boolean filled = fillFirstEditText(child, text);
+                child.recycle();
+                if (filled) return true;
+            }
+        }
+        return false;
+    }
+
+    // ─── Overlay ──────────────────────────────────────────────────────────────
+
+    private void showOverlay(String text) {
+        new Handler(Looper.getMainLooper()).post(() -> {
+            if (!isOverlayShown) createOverlay();
+            if (tvAnswer != null) tvAnswer.setText(text);
+        });
+    }
+
+    private void createOverlay() {
+        try {
+            overlayView  = LayoutInflater.from(this).inflate(R.layout.overlay_answer, null);
+            tvAnswer     = overlayView.findViewById(R.id.tv_answer);
+            tvPauseLabel = overlayView.findViewById(R.id.tv_pause_label);
+
+            overlayView.findViewById(R.id.btn_close)
+                    .setOnClickListener(v -> hideOverlay());
+
+            View handle = overlayView.findViewById(R.id.drag_handle);
+            final int[] downRawX = {0}, downRawY = {0};
+            final int[] downOvX  = {0}, downOvY  = {0};
+
+            handle.setOnTouchListener((v, ev) -> {
+                switch (ev.getAction()) {
+                    case MotionEvent.ACTION_DOWN:
+                        downRawX[0] = (int) ev.getRawX();
+                        downRawY[0] = (int) ev.getRawY();
+                        downOvX[0]  = overlayX;
+                        downOvY[0]  = overlayY;
+                        break;
+                    case MotionEvent.ACTION_MOVE:
+                        overlayX = downOvX[0] + (int) ev.getRawX() - downRawX[0];
+                        overlayY = downOvY[0] + (int) ev.getRawY() - downRawY[0];
+                        updateOverlayPosition();
+                        break;
+                }
+                return true;
+            });
+
+            WindowManager.LayoutParams params = new WindowManager.LayoutParams(
+                    WindowManager.LayoutParams.MATCH_PARENT,
+                    WindowManager.LayoutParams.WRAP_CONTENT,
+                    WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
+                    WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
+                            | WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL
+                            | WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+                    PixelFormat.TRANSLUCENT
+            );
+            params.gravity = Gravity.TOP | Gravity.START;
+            params.x = overlayX;
+            params.y = overlayY;
+
+            windowManager.addView(overlayView, params);
+            isOverlayShown = true;
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+
+    private void updateOverlayPosition() {
+        if (overlayView == null || !isOverlayShown) return;
+        WindowManager.LayoutParams p =
+                (WindowManager.LayoutParams) overlayView.getLayoutParams();
+        p.x = overlayX;
+        p.y = overlayY;
+        try { windowManager.updateViewLayout(overlayView, p); } catch (Exception ignored) {}
+    }
+
+    private void updatePauseLabel() {
+        new Handler(Looper.getMainLooper()).post(() -> {
+            if (tvPauseLabel != null)
+                tvPauseLabel.setText(isPaused ? "⏸ TestSolver" : "▶ TestSolver");
         });
     }
 
@@ -87,32 +265,10 @@ public class TestAccessibilityService extends AccessibilityService {
                     windowManager.removeView(overlayView);
                     overlayView = null;
                 }
+                tvAnswer     = null;
+                tvPauseLabel = null;
                 isOverlayShown = false;
             } catch (Exception ignored) {}
         });
-    }
-
-    private void setupInputLogic() {
-        inputField.setOnEditorActionListener((v, actionId, event) -> {
-            String input = safeText(inputField.getText());
-            String result = processText(input);
-            resultView.setText(result);
-            return true;
-        });
-    }
-
-    private String safeText(CharSequence text) {
-        return text == null ? "" : text.toString();
-    }
-
-    private String processText(String text) {
-        if (text.isEmpty()) return "";
-
-        text = text
-                .toLowerCase(Locale.ROOT)
-                .replaceAll("[^\\p{L}0-9\\s]", "")
-                .trim();
-
-        return "Ответ: " + text;
     }
 }
